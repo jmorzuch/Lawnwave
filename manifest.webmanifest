@@ -1,0 +1,30 @@
+{
+    "name": "Lawnwave — Best Day to Cut",
+    "short_name": "Lawnwave",
+    "description": "Track when you last cut each lawn and get the best day to mow based on the Summerville, SC weather forecast.",
+    "id": "./",
+    "start_url": "./",
+    "scope": "./",
+    "display": "standalone",
+    "orientation": "portrait",
+    "background_color": "#0f5132",
+    "theme_color": "#1b6b30",
+    "categories": [
+        "utilities",
+        "productivity"
+    ],
+    "icons": [
+        {
+            "src": "icon.svg",
+            "sizes": "any",
+            "type": "image/svg+xml",
+            "purpose": "any"
+        },
+        {
+            "src": "icon.svg",
+            "sizes": "any",
+            "type": "image/svg+xml",
+            "purpose": "maskable"
+        }
+    ]
+}

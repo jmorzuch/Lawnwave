@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2f9e44"/>
+      <stop offset="1" stop-color="#1b6b30"/>
+    </linearGradient>
+    <linearGradient id="blade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f8f9fa"/>
+      <stop offset="1" stop-color="#ced4da"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="url(#sky)"/>
+  <!-- grass blades -->
+  <g fill="#0f5132">
+    <path d="M70 400 C60 340 90 320 96 300 C104 330 108 360 108 400 Z"/>
+    <path d="M120 400 C112 330 140 310 148 288 C158 322 160 360 160 400 Z"/>
+    <path d="M360 400 C352 330 380 310 388 288 C398 322 400 360 400 400 Z"/>
+    <path d="M410 400 C402 340 430 320 436 300 C444 330 448 360 448 400 Z"/>
+  </g>
+  <!-- mower body -->
+  <rect x="150" y="300" width="212" height="70" rx="20" fill="#e03131"/>
+  <rect x="150" y="300" width="212" height="26" rx="13" fill="#fa5252"/>
+  <!-- handle -->
+  <g fill="none" stroke="#343a40" stroke-width="20" stroke-linecap="round">
+    <path d="M352 316 L430 210"/>
+    <path d="M430 210 L470 210"/>
+  </g>
+  <!-- wheels -->
+  <circle cx="196" cy="384" r="34" fill="#212529"/>
+  <circle cx="196" cy="384" r="14" fill="#adb5bd"/>
+  <circle cx="316" cy="384" r="34" fill="#212529"/>
+  <circle cx="316" cy="384" r="14" fill="#adb5bd"/>
+  <!-- blade / cut line -->
+  <rect x="120" y="356" width="272" height="12" rx="6" fill="url(#blade)"/>
+</svg>
