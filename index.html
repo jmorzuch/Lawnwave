@@ -1,0 +1,1073 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#1b6b30" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Lawnwave" />
+    <meta name="description"
+        content="Track when you last cut each lawn and get the best day to mow based on the Summerville, SC weather." />
+    <title>Lawnwave · Best Day to Cut</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" href="icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="icon.svg" />
+    <style>
+        :root {
+            --radius: 20px;
+            --shadow: 0 14px 34px rgba(15, 40, 25, .22);
+            --text: #10241a;
+            --muted: rgba(16, 36, 26, .62);
+            --card-bg: rgba(255, 255, 255, .72);
+            --card-border: rgba(255, 255, 255, .85);
+            --green: #2f9e44;
+            --green-bg: #d3f9d8;
+            --green-border: #69db7c;
+            --yellow: #e67700;
+            --yellow-bg: #fff3bf;
+            --yellow-border: #ffd43b;
+            --red: #c92a2a;
+            --red-bg: #ffe3e3;
+            --red-border: #ff8787;
+        }
+
+        html {
+            font-size: 15px
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0
+        }
+
+        body {
+            min-height: 100vh;
+            font-family: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+            color: var(--text);
+            background: linear-gradient(165deg, #b2f2bb 0%, #69db7c 45%, #2f9e44 100%);
+            background-attachment: fixed;
+            padding: calc(24px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-left)) calc(40px + env(safe-area-inset-bottom));
+            -webkit-font-smoothing: antialiased;
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+
+        .hidden {
+            display: none !important
+        }
+
+        .app {
+            max-width: 560px;
+            margin: 0 auto;
+            display: flex;
+            flex-direction: column;
+            gap: 16px
+        }
+
+        .glass {
+            background: var(--card-bg);
+            border: 1px solid var(--card-border);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px)
+        }
+
+        /* ---------- Header ---------- */
+        header.glass {
+            padding: 20px 22px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px
+        }
+
+        .brand-row {
+            display: flex;
+            align-items: center;
+            gap: 12px
+        }
+
+        .brand-row .logo {
+            width: 44px;
+            height: 44px;
+            flex: 0 0 auto
+        }
+
+        .brand-row h1 {
+            font-size: 1.35rem;
+            font-weight: 800;
+            letter-spacing: -.02em
+        }
+
+        .brand-row .sub {
+            font-size: .82rem;
+            color: var(--muted)
+        }
+
+        /* ---------- Recommendation hero ---------- */
+        .rec {
+            padding: 20px 22px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px
+        }
+
+        .rec .rec-label {
+            font-size: .78rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            color: var(--muted)
+        }
+
+        .rec .rec-main {
+            font-size: 1.5rem;
+            font-weight: 800;
+            line-height: 1.25;
+            letter-spacing: -.02em
+        }
+
+        .rec .rec-detail {
+            font-size: .92rem;
+            color: var(--muted);
+            line-height: 1.5
+        }
+
+        .rec .rec-detail b {
+            color: var(--text)
+        }
+
+        .rec.is-good .rec-main {
+            color: #1b6b30
+        }
+
+        .rec.is-neutral .rec-main {
+            color: #10241a
+        }
+
+        .rec.is-warn .rec-main {
+            color: #c92a2a
+        }
+
+        .rec .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-size: .8rem;
+            font-weight: 700;
+            padding: 5px 12px;
+            border-radius: 999px;
+            width: fit-content
+        }
+
+        .badge.good {
+            background: var(--green-bg);
+            color: #1b6b30;
+            border: 1px solid var(--green-border)
+        }
+
+        .badge.warn {
+            background: var(--red-bg);
+            color: #c92a2a;
+            border: 1px solid var(--red-border)
+        }
+
+        .badge.neutral {
+            background: rgba(16, 36, 26, .08);
+            color: var(--muted);
+            border: 1px solid rgba(16, 36, 26, .15)
+        }
+
+        /* ---------- Section title ---------- */
+        .section-title {
+            font-size: .8rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .08em;
+            color: rgba(255, 255, 255, .85);
+            padding: 0 4px
+        }
+
+        /* ---------- Property cards ---------- */
+        .cards {
+            display: flex;
+            flex-direction: column;
+            gap: 14px
+        }
+
+        .card {
+            padding: 18px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            border-left: 6px solid transparent;
+            transition: transform .12s ease
+        }
+
+        .card:active {
+            transform: scale(.99)
+        }
+
+        .card .info {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 0
+        }
+
+        .card .name {
+            font-size: 1.05rem;
+            font-weight: 800;
+            letter-spacing: -.01em
+        }
+
+        .card .last {
+            font-size: .82rem;
+            color: var(--muted)
+        }
+
+        .card .days {
+            font-size: .8rem;
+            font-weight: 700
+        }
+
+        .card .history {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(16, 36, 26, .12);
+            display: flex;
+            flex-direction: column;
+            gap: 4px
+        }
+
+        .card .history-label {
+            font-size: .7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            color: var(--muted)
+        }
+
+        .card .history-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 2px
+        }
+
+        .card .history-list li {
+            font-size: .78rem;
+            color: var(--muted);
+            padding-left: 14px;
+            position: relative
+        }
+
+        .card .history-list li::before {
+            content: "";
+            position: absolute;
+            left: 2px;
+            top: .5em;
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: currentColor;
+            opacity: .5
+        }
+
+        .card .status-dot {
+            display: inline-block;
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            margin-right: 6px;
+            vertical-align: middle
+        }
+
+        .card .cut-btn {
+            flex: 0 0 auto;
+            border: none;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: .85rem;
+            font-weight: 700;
+            padding: 11px 16px;
+            border-radius: 14px;
+            background: #1b6b30;
+            color: #fff;
+            box-shadow: 0 6px 16px rgba(27, 107, 48, .35);
+            transition: transform .1s ease, background .15s ease
+        }
+
+        .card .cut-btn:active {
+            transform: scale(.96)
+        }
+
+        .card .cut-btn.done {
+            background: #e9facb;
+            color: #1b6b30;
+            box-shadow: none
+        }
+
+        /* status colors */
+        .card.green {
+            background: var(--green-bg);
+            border-color: var(--green-border);
+            border-left-color: var(--green)
+        }
+
+        .card.green .status-dot {
+            background: var(--green)
+        }
+
+        .card.green .days {
+            color: #1b6b30
+        }
+
+        .card.yellow {
+            background: var(--yellow-bg);
+            border-color: var(--yellow-border);
+            border-left-color: var(--yellow)
+        }
+
+        .card.yellow .status-dot {
+            background: var(--yellow)
+        }
+
+        .card.yellow .days {
+            color: #e67700
+        }
+
+        .card.red {
+            background: var(--red-bg);
+            border-color: var(--red-border);
+            border-left-color: var(--red)
+        }
+
+        .card.red .status-dot {
+            background: var(--red)
+        }
+
+        .card.red .days {
+            color: #c92a2a
+        }
+
+        /* ---------- 3-day forecast strip ---------- */
+        .forecast {
+            padding: 16px 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px
+        }
+
+        .forecast .frow {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 10px;
+            align-items: center
+        }
+
+        .forecast .fday {
+            font-weight: 700;
+            font-size: .95rem
+        }
+
+        .forecast .fmeta {
+            font-size: .8rem;
+            color: var(--muted)
+        }
+
+        .forecast .fright {
+            text-align: right;
+            display: flex;
+            flex-direction: column;
+            gap: 2px
+        }
+
+        .forecast .ftemp {
+            font-weight: 800;
+            font-size: 1rem
+        }
+
+        .forecast .frain {
+            font-size: .8rem;
+            color: var(--muted)
+        }
+
+        .forecast .best-tag {
+            font-size: .68rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: .06em;
+            color: #1b6b30;
+            background: var(--green-bg);
+            border: 1px solid var(--green-border);
+            padding: 2px 8px;
+            border-radius: 999px;
+            width: fit-content;
+            margin-left: 8px
+        }
+
+        /* ---------- Backup (export / import) ---------- */
+        .data {
+            padding: 16px 18px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px
+        }
+
+        .data-note {
+            font-size: .82rem;
+            color: var(--muted);
+            line-height: 1.5
+        }
+
+        .data-actions {
+            display: flex;
+            gap: 10px
+        }
+
+        .data-btn {
+            flex: 1;
+            border: none;
+            cursor: pointer;
+            font-family: inherit;
+            font-size: .9rem;
+            font-weight: 700;
+            padding: 12px 16px;
+            border-radius: 14px;
+            background: #1b6b30;
+            color: #fff;
+            box-shadow: 0 6px 16px rgba(27, 107, 48, .3);
+            transition: transform .1s ease, background .15s ease
+        }
+
+        .data-btn:active {
+            transform: scale(.97)
+        }
+
+        .data-btn.secondary {
+            background: #e9facb;
+            color: #1b6b30;
+            box-shadow: none
+        }
+
+        .data-msg {
+            font-size: .8rem;
+            font-weight: 600;
+            min-height: 1em
+        }
+
+        .data-msg.ok {
+            color: #1b6b30
+        }
+
+        .data-msg.err {
+            color: #c92a2a
+        }
+
+        /* ---------- Overlay / error ---------- */
+        .overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(15, 40, 25, .35);
+            backdrop-filter: blur(3px);
+            -webkit-backdrop-filter: blur(3px)
+        }
+
+        .spinner {
+            width: 42px;
+            height: 42px;
+            border: 4px solid rgba(255, 255, 255, .4);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin .8s linear infinite
+        }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg)
+            }
+        }
+
+        .error-box {
+            padding: 18px 20px;
+            background: var(--red-bg);
+            border: 1px solid var(--red-border);
+            border-left: 6px solid var(--red);
+            color: #c92a2a;
+            font-size: .9rem;
+            line-height: 1.5;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px
+        }
+
+        .error-box button {
+            border: none;
+            background: #c92a2a;
+            color: #fff;
+            font-weight: 700;
+            font-family: inherit;
+            padding: 8px 14px;
+            border-radius: 10px;
+            cursor: pointer;
+            flex: 0 0 auto
+        }
+
+        footer {
+            text-align: center;
+            font-size: .74rem;
+            color: rgba(255, 255, 255, .8);
+            padding: 4px 8px
+        }
+
+        footer a {
+            color: rgba(255, 255, 255, .95);
+            font-weight: 600
+        }
+
+        @media (max-width: 380px) {
+            .card {
+                flex-direction: column;
+                align-items: stretch
+            }
+
+            .card .cut-btn {
+                width: 100%
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app">
+        <header class="glass">
+            <div class="brand-row">
+                <img class="logo" src="icon.svg" alt="" />
+                <div>
+                    <h1>Lawnwave</h1>
+                    <div class="sub">Best day to cut · Summerville, SC</div>
+                </div>
+            </div>
+        </header>
+
+        <!-- Recommendation -->
+        <section class="glass rec" id="rec" aria-live="polite">
+            <div class="rec-label">Recommendation</div>
+            <div class="rec-main" id="recMain">Checking the forecast…</div>
+            <div class="rec-detail" id="recDetail"></div>
+        </section>
+
+        <!-- 3-day forecast -->
+        <div class="section-title">Next 3 Days</div>
+        <section class="glass forecast" id="forecast" aria-label="Three day forecast"></section>
+
+        <!-- Property cards -->
+        <div class="section-title">Your Lawns</div>
+        <div class="cards" id="cards"></div>
+
+        <!-- Data: export / import -->
+        <div class="section-title">Backup</div>
+        <section class="glass data" aria-label="Backup and restore">
+            <p class="data-note">Save your cut logs to a file (e.g. in Google Drive), or restore them on a new device.
+            </p>
+            <div class="data-actions">
+                <button class="data-btn" id="exportBtn" type="button">⬇ Export</button>
+                <button class="data-btn" id="importBtn" type="button">⬆ Import</button>
+            </div>
+            <div class="data-msg" id="dataMsg" role="status" aria-live="polite"></div>
+            <input type="file" id="importFile" accept=".json,application/json" class="hidden" />
+        </section>
+
+        <footer>
+            Weather by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> ·
+            Cut logs are saved on this device.
+        </footer>
+    </div>
+
+    <!-- Loading overlay -->
+    <div class="overlay hidden" id="overlay">
+        <div class="spinner"></div>
+    </div>
+
+    <script>
+        "use strict";
+
+        /* ============================================================
+         *  Configuration
+         * ============================================================ */
+        const PROPERTIES = [
+            { id: "osha", name: "Osha's House" },
+            { id: "mine", name: "My House" },
+            { id: "hoa", name: "HOA Property" },
+        ];
+
+        // Summerville, South Carolina
+        const LAT = 33.1291;
+        const LON = -80.1154;
+        const WX_URL = "https://api.open-meteo.com/v1/forecast";
+
+        // Status thresholds (days since last cut)
+        const GREEN_MAX = 8;   // < 8 days  -> green
+        const YELLOW_MAX = 12; // 8–12 days -> yellow, > 12 -> red
+
+        const LS_KEY = "lawnMower.lastCut.v1";
+
+        /* ============================================================
+         *  State
+         * ============================================================ */
+        function loadCuts() {
+            let data;
+            try {
+                data = JSON.parse(localStorage.getItem(LS_KEY)) || {};
+            } catch {
+                return {};
+            }
+            // Migrate the old single-timestamp format into a history array.
+            const out = {};
+            PROPERTIES.forEach((p) => {
+                const v = data[p.id];
+                if (Array.isArray(v)) out[p.id] = v;
+                else if (v) out[p.id] = [v];
+            });
+            return out;
+        }
+
+        function saveCuts(cuts) {
+            localStorage.setItem(LS_KEY, JSON.stringify(cuts));
+        }
+
+        let cuts = loadCuts();
+
+        // Return a property's cut history as a descending array of timestamps.
+        function historyFor(id) {
+            const raw = cuts[id];
+            const arr = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+            return arr
+                .filter((t) => typeof t === "number" && isFinite(t) && t > 0)
+                .sort((a, b) => b - a);
+        }
+
+        // Most recent cut timestamp for a property, or null.
+        function lastCut(id) {
+            const h = historyFor(id);
+            return h.length ? h[0] : null;
+        }
+
+        /* ============================================================
+         *  Helpers
+         * ============================================================ */
+        const $ = (id) => document.getElementById(id);
+
+        function daysSince(ts) {
+            if (!ts) return null;
+            const ms = Date.now() - ts;
+            return Math.floor(ms / (1000 * 60 * 60 * 24));
+        }
+
+        function statusFor(days) {
+            if (days === null) return "red"; // never cut -> treat as overdue
+            if (days < GREEN_MAX) return "green";
+            if (days <= YELLOW_MAX) return "yellow";
+            return "red";
+        }
+
+        function lastCutText(ts) {
+            if (!ts) return "Never cut";
+            const d = new Date(ts);
+            const days = daysSince(ts);
+            const dateStr = d.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+            let daysStr;
+            if (days === 0) daysStr = "today";
+            else if (days === 1) daysStr = "1 day ago";
+            else daysStr = `${days} days ago`;
+            return `${dateStr} · ${daysStr}`;
+        }
+
+        function showOverlay(on) {
+            $("overlay").classList.toggle("hidden", !on);
+        }
+
+        /* ============================================================
+         *  Render property cards
+         * ============================================================ */
+        function renderCards() {
+            const wrap = $("cards");
+            wrap.innerHTML = "";
+            PROPERTIES.forEach((p) => {
+                const history = historyFor(p.id);
+                const ts = history.length ? history[0] : null;
+                const days = daysSince(ts);
+                const status = statusFor(days);
+
+                const card = document.createElement("div");
+                card.className = `card ${status}`;
+
+                const info = document.createElement("div");
+                info.className = "info";
+
+                const name = document.createElement("div");
+                name.className = "name";
+                name.textContent = p.name;
+
+                const last = document.createElement("div");
+                last.className = "last";
+                last.textContent = lastCutText(ts);
+
+                const daysEl = document.createElement("div");
+                daysEl.className = "days";
+                daysEl.innerHTML = `<span class="status-dot"></span>`;
+                const label = document.createElement("span");
+                if (status === "green") label.textContent = "Fresh";
+                else if (status === "yellow") label.textContent = "Due soon";
+                else if (days === null) label.textContent = "";
+                else label.textContent = "Overdue";
+                daysEl.appendChild(label);
+
+                info.append(name, last, daysEl);
+
+                // Last 3 cut dates (most recent first).
+                const recent = history.slice(0, 3);
+                if (recent.length) {
+                    const hist = document.createElement("div");
+                    hist.className = "history";
+                    const histLabel = document.createElement("span");
+                    histLabel.className = "history-label";
+                    histLabel.textContent = "Last 3 cuts:";
+                    hist.appendChild(histLabel);
+                    const ul = document.createElement("ul");
+                    ul.className = "history-list";
+                    recent.forEach((t) => {
+                        const li = document.createElement("li");
+                        li.textContent = lastCutText(t);
+                        ul.appendChild(li);
+                    });
+                    hist.appendChild(ul);
+                    info.appendChild(hist);
+                }
+
+                const btn = document.createElement("button");
+                btn.className = "cut-btn";
+                btn.type = "button";
+                btn.textContent = "✓ I cut this";
+                btn.addEventListener("click", () => logCut(p.id, btn));
+
+                card.append(info, btn);
+                wrap.appendChild(card);
+            });
+        }
+
+        function logCut(id, btn) {
+            const now = Date.now();
+            const existing = historyFor(id);
+            // Avoid logging the same calendar day twice in a row.
+            const sameDay = existing.length &&
+                new Date(existing[0]).toDateString() === new Date(now).toDateString();
+            cuts[id] = sameDay ? existing : [now, ...existing].slice(0, 20);
+            saveCuts(cuts);
+            renderCards();
+            renderRecommendation(); // status may have changed (e.g. all green now)
+            if (btn) {
+                btn.classList.add("done");
+                btn.textContent = "Logged!";
+                setTimeout(() => {
+                    btn.classList.remove("done");
+                    btn.textContent = "✓ I cut this";
+                }, 1600);
+            }
+        }
+
+        /* ============================================================
+         *  Weather + recommendation
+         * ============================================================ */
+        async function fetchJSON(url) {
+            let res;
+            try {
+                res = await fetch(url);
+            } catch {
+                throw new Error("network");
+            }
+            if (!res.ok) throw new Error("http");
+            return res.json();
+        }
+
+        // Score a single day: higher is better for mowing.
+        // We want LOW rain probability and a COMFORTABLE temperature
+        // (grass dries and cuts cleanly around 65–78°F; very hot or
+        // very cold is worse).
+        function scoreDay(day) {
+            const rain = day.precipitation_probability_max ?? 0;
+            const precipSum = day.precipitation_sum ?? 0; // mm
+            const temp = ((day.temperature_2m_max ?? 75) + (day.temperature_2m_min ?? 65)) / 2;
+
+            // Rain: 0% -> 100, 100% -> 0. Heavier rain penalized a bit more.
+            let rainScore = 100 - rain;
+            rainScore -= Math.min(30, precipSum * 4);
+
+            // Temperature: ideal band centered ~72°F.
+            const tempDist = Math.abs(temp - 72);
+            let tempScore = Math.max(0, 100 - tempDist * 3.2);
+
+            return { score: rainScore * 0.65 + tempScore * 0.35, rain, temp };
+        }
+
+        function renderForecast(days, bestIdx) {
+            const wrap = $("forecast");
+            wrap.innerHTML = "";
+            days.forEach((d, i) => {
+                const row = document.createElement("div");
+                row.className = "frow";
+
+                const left = document.createElement("div");
+                const dayName = new Date(d.date + "T12:00:00").toLocaleDateString([], {
+                    weekday: "short",
+                    month: "short",
+                    day: "numeric"
+                });
+                const fday = document.createElement("div");
+                fday.className = "fday";
+                fday.textContent = dayName;
+                if (i === bestIdx) {
+                    const tag = document.createElement("span");
+                    tag.className = "best-tag";
+                    tag.textContent = "Best day";
+                    fday.appendChild(tag);
+                }
+                const fmeta = document.createElement("div");
+                fmeta.className = "fmeta";
+                fmeta.textContent = `High ${Math.round(d.temperature_2m_max)}° · Low ${Math.round(d.temperature_2m_min)}°`;
+                left.append(fday, fmeta);
+
+                const right = document.createElement("div");
+                right.className = "fright";
+                const ftemp = document.createElement("div");
+                ftemp.className = "ftemp";
+                ftemp.textContent = `${Math.round(d.temperature_2m_max)}°F`;
+                const frain = document.createElement("div");
+                frain.className = "frain";
+                frain.textContent = `💧 ${d.precipitation_probability_max ?? 0}% rain`;
+                right.append(ftemp, frain);
+
+                row.append(left, right);
+                wrap.appendChild(row);
+            });
+        }
+
+        function renderRecommendation() {
+            const rec = $("rec");
+            const main = $("recMain");
+            const detail = $("recDetail");
+            rec.classList.remove("is-good", "is-neutral", "is-warn");
+
+            // All green -> no cut needed.
+            const allGreen = PROPERTIES.every((p) => statusFor(daysSince(lastCut(p.id))) === "green");
+            if (allGreen) {
+                rec.classList.add("is-neutral");
+                main.textContent = "No cut needed 🌱";
+                detail.innerHTML = `All of your lawns were cut within the last ${GREEN_MAX} days. Enjoy the break — we'll flag a day when one starts to grow back.`;
+                return;
+            }
+
+            if (!state.days || !state.days.length) {
+                rec.classList.add("is-neutral");
+                main.textContent = "Forecast unavailable";
+                detail.textContent = "We couldn't load the weather, so we can't pick a day. Check your connection and pull to refresh.";
+                return;
+            }
+
+            // Pick the best of the next 3 days.
+            let bestIdx = 0, bestScore = -Infinity;
+            state.days.forEach((d, i) => {
+                const s = scoreDay(d).score;
+                if (s > bestScore) { bestScore = s; bestIdx = i; }
+            });
+            const best = state.days[bestIdx];
+            const bestInfo = scoreDay(best);
+            const dayName = new Date(best.date + "T12:00:00").toLocaleDateString([], {
+                weekday: "long", month: "short", day: "numeric"
+            });
+
+            const worst = PROPERTIES
+                .map((p) => ({ p, days: daysSince(lastCut(p.id)) }))
+                .sort((a, b) => (b.days ?? 999) - (a.days ?? 999))[0];
+
+            if (bestInfo.rain <= 30) {
+                rec.classList.add("is-good");
+                main.textContent = `Best day: ${dayName} ☀️`;
+                detail.innerHTML =
+                    `Low rain chance (<b>${bestInfo.rain}%</b>) and a comfortable <b>${Math.round(bestInfo.temp)}°F</b>. ` +
+                    `Most overdue: <b>${worst.p.name}</b>${worst.days === null ? " (never cut)" : ` (${worst.days} day${worst.days === 1 ? "" : "s"} ago)`}.`;
+            } else {
+                rec.classList.add("is-warn");
+                main.textContent = `Best available: ${dayName} ⚠️`;
+                detail.innerHTML =
+                    `It's the driest of the next 3 days, but rain chance is <b>${bestInfo.rain}%</b> and it's about <b>${Math.round(bestInfo.temp)}°F</b>. ` +
+                    `If you can wait, a drier day may come. ` +
+                    `Most overdue: <b>${worst.p.name}</b>${worst.days === null ? " (never cut)" : ` (${worst.days} day${worst.days === 1 ? "" : "s"} ago)`}.`;
+            }
+
+            renderForecast(state.days, bestIdx);
+        }
+
+        const state = { days: null };
+
+        async function loadWeather() {
+            showOverlay(true);
+            try {
+                const url = `${WX_URL}?latitude=${LAT}&longitude=${LON}` +
+                    `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum` +
+                    `&temperature_unit=fahrenheit&timezone=auto&forecast_days=3`;
+                const data = await fetchJSON(url);
+                // Open-Meteo returns parallel arrays; convert to an array of day objects.
+                const d = data.daily;
+                state.days = d.time.map((date, i) => ({
+                    date,
+                    temperature_2m_max: d.temperature_2m_max[i],
+                    temperature_2m_min: d.temperature_2m_min[i],
+                    precipitation_probability_max: d.precipitation_probability_max[i],
+                    precipitation_sum: d.precipitation_sum[i],
+                }));
+                renderRecommendation();
+            } catch {
+                state.days = null;
+                renderRecommendation();
+            } finally {
+                showOverlay(false);
+            }
+        }
+
+        /* ============================================================
+         *  Backup — export / import cut logs
+         * ============================================================ */
+        function dataMsg(text, kind) {
+            const el = $("dataMsg");
+            el.textContent = text || "";
+            el.className = "data-msg" + (kind ? ` ${kind}` : "");
+        }
+
+        function exportCuts() {
+            // Export each property's cut history (property id -> array of timestamps).
+            const payload = {};
+            PROPERTIES.forEach((p) => {
+                const h = historyFor(p.id);
+                if (h.length) payload[p.id] = h;
+            });
+            const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            const stamp = new Date().toISOString().slice(0, 10);
+            a.href = url;
+            a.download = `lawnwave-backup-${stamp}.json`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            dataMsg("Exported. Save the file somewhere safe (e.g. Google Drive).", "ok");
+        }
+
+        // Accept a number (epoch ms) or a date string like "2026-08-15" or
+        // "2026-08-15 14:30" and return epoch ms, or null if it's not valid.
+        function toTimestamp(v) {
+            if (typeof v === "number" && isFinite(v) && v > 0) return v;
+            if (typeof v === "string") {
+                const s = v.trim();
+                if (!s) return null;
+                // Date only (YYYY-MM-DD): treat as local midnight so it shows
+                // the same calendar day the user typed (avoids a UTC off-by-one).
+                const m = s.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+                if (m) {
+                    const t = new Date(+m[1], +m[2] - 1, +m[3]).getTime();
+                    if (!isNaN(t)) return t;
+                }
+                // Otherwise (has a time component): normalize and parse.
+                const normalized = s.includes(" ") ? s.replace(" ", "T") : s;
+                const t = Date.parse(normalized);
+                if (!isNaN(t)) return t;
+            }
+            return null;
+        }
+
+        function importCuts(file) {
+            const reader = new FileReader();
+            reader.onload = () => {
+                try {
+                    const parsed = JSON.parse(reader.result);
+                    // Accept either a flat {osha, mine, hoa} object or the older
+                    // {cuts: {osha, mine, hoa}} shape.
+                    const incoming = (parsed && typeof parsed === "object" && parsed.cuts)
+                        ? parsed.cuts
+                        : parsed;
+                    if (!incoming || typeof incoming !== "object") throw new Error("bad");
+
+                    // Accept a single value or an array of values per property.
+                    const clean = {};
+                    PROPERTIES.forEach((p) => {
+                        const raw = incoming[p.id];
+                        const list = Array.isArray(raw) ? raw : [raw];
+                        const ts = list.map(toTimestamp).filter(Boolean).sort((a, b) => b - a);
+                        if (ts.length) clean[p.id] = ts.slice(0, 20);
+                    });
+
+                    cuts = clean;
+                    saveCuts(cuts);
+                    renderCards();
+                    renderRecommendation();
+                    dataMsg(`Imported ${Object.keys(clean).length} propert${Object.keys(clean).length === 1 ? "y" : "ies"}.`, "ok");
+                } catch {
+                    dataMsg("Couldn't read that file — is it a Lawnwave backup?", "err");
+                }
+            };
+            reader.onerror = () => dataMsg("Couldn't read the file.", "err");
+            reader.readAsText(file);
+        }
+
+        function wireDataButtons() {
+            $("exportBtn").addEventListener("click", exportCuts);
+            $("importBtn").addEventListener("click", () => $("importFile").click());
+            $("importFile").addEventListener("change", (e) => {
+                const file = e.target.files && e.target.files[0];
+                if (file) importCuts(file);
+                e.target.value = ""; // allow re-importing the same file
+            });
+        }
+
+        /* ============================================================
+         *  Init
+         * ============================================================ */
+        renderCards();
+        loadWeather();
+        wireDataButtons();
+
+        // Refresh the forecast when the tab becomes visible again (e.g. returning to the app).
+        document.addEventListener("visibilitychange", () => {
+            if (!document.hidden) loadWeather();
+        });
+
+        /* ============================================================
+         *  PWA — register the service worker for offline support.
+         *  Only registers over http(s) or localhost (not file://), so it
+         *  is a no-op when the page is opened directly from disk.
+         * ============================================================ */
+        if ("serviceWorker" in navigator &&
+            (location.protocol === "https:" ||
+                location.protocol === "http:" ||
+                location.hostname === "localhost")) {
+            window.addEventListener("load", () => {
+                navigator.serviceWorker.register("sw.js").catch((err) => {
+                    console.warn("Service worker registration failed:", err);
+                });
+            });
+        }
+    </script>
+</body>
+
+</html>
