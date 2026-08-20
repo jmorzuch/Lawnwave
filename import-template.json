@@ -1,10 +1,17 @@
 {
     "_instructions": "Fill in the dates you mowed each property, then tap Import in the app. Use YYYY-MM-DD (e.g. 2026-08-15). You can list up to 3 dates as an array, most recent first, e.g. [\"2026-08-15\", \"2026-08-01\", \"2026-07-18\"]. A single date string also works. Leave a value blank (\"\") to skip that property. The _instructions line is ignored by the app.",
     "osha": [
-        "2026-08-15",
         "2026-08-01",
         "2026-07-18"
     ],
-    "mine": "2026-08-15",
-    "hoa": "2026-08-15"
+    "mine": [
+        "2026-08-14",
+        "2026-08-01",
+        "2026-07-18"
+    ],
+    "hoa": [
+        "2026-08-16",
+        "2026-07-30",
+        "2026-07-15"
+    ]
 }

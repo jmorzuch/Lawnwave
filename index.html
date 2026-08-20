@@ -535,6 +535,125 @@
             font-weight: 600
         }
 
+        /* ---------- Forecast freshness + icons ---------- */
+        .section-title-row {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 0 4px
+        }
+
+        .wx-status {
+            font-size: .72rem;
+            font-weight: 600;
+            color: rgba(255, 255, 255, .85);
+            text-align: right
+        }
+
+        .wx-status.stale {
+            color: #ffe066;
+            font-weight: 700
+        }
+
+        /* ---------- Extended outlook (day 4–14) ---------- */
+        .extended {
+            padding: 12px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px
+        }
+
+        .xrow {
+            display: grid;
+            grid-template-columns: auto 1fr auto;
+            gap: 10px;
+            align-items: center;
+            font-size: .8rem;
+            color: var(--muted);
+            padding: 6px 10px;
+            border-radius: 12px
+        }
+
+        .xrow .xicon {
+            font-size: 1.15rem
+        }
+
+        .xrow .xday {
+            font-weight: 700;
+            color: var(--text);
+            white-space: nowrap
+        }
+
+        .xrow .xr {
+            text-align: right;
+            white-space: nowrap
+        }
+
+        .xrow.best {
+            background: var(--green-bg);
+            border: 1px solid var(--green-border)
+        }
+
+        .xrow.best .xday,
+        .xrow.best .xr {
+            color: #1b6b30;
+            font-weight: 800
+        }
+
+        /* ---------- Forecast icon column (overrides earlier grid) ---------- */
+        .forecast .frow {
+            grid-template-columns: auto 1fr auto
+        }
+
+        .ficon {
+            font-size: 1.5rem;
+            line-height: 1
+        }
+
+        /* ---------- Cut analytics ---------- */
+        .card-stats {
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid rgba(16, 36, 26, .12);
+            display: flex;
+            flex-direction: column;
+            gap: 8px
+        }
+
+        .stat-line {
+            font-size: .75rem;
+            color: var(--muted)
+        }
+
+        .spark-row {
+            display: flex;
+            align-items: center;
+            gap: 10px
+        }
+
+        .spark-label {
+            font-size: .68rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: .05em;
+            color: var(--muted)
+        }
+
+        /* ---------- Daily alerts ---------- */
+        .alerts {
+            padding: 16px 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px
+        }
+
+        .alert-note {
+            font-size: .84rem;
+            color: var(--muted);
+            line-height: 1.5
+        }
+
         @media (max-width: 380px) {
             .card {
                 flex-direction: column;
@@ -568,12 +687,23 @@
         </section>
 
         <!-- 3-day forecast -->
-        <div class="section-title">Next 3 Days</div>
+        <div class="section-title-row">
+            <span class="section-title">Next 3 Days</span>
+            <span id="wxStatus" class="wx-status" role="status"></span>
+        </div>
         <section class="glass forecast" id="forecast" aria-label="Three day forecast"></section>
+
+        <!-- Extended outlook (day 4–14) -->
+        <div class="section-title">Outlook · Next Two Weeks</div>
+        <section class="glass extended hidden" id="extended" aria-label="Extended two-week outlook"></section>
 
         <!-- Property cards -->
         <div class="section-title">Your Lawns</div>
         <div class="cards" id="cards"></div>
+
+        <!-- Daily alerts -->
+        <div class="section-title">Daily Alerts</div>
+        <section class="glass alerts" id="alerts" aria-label="Daily mowing alerts"></section>
 
         <!-- Data: export / import -->
         <div class="section-title">Backup</div>
@@ -620,20 +750,194 @@
         const GREEN_MAX = 8;   // < 8 days  -> green
         const YELLOW_MAX = 12; // 8–12 days -> yellow, > 12 -> red
 
+        // Scoring horizon: Open-Meteo's free tier gives ~16 daily values. We ask
+        // for 14 and score the WHOLE window so "a drier day may come" is an
+        // actual recommendation instead of a shrug when all 3 days are wet.
+        const FORECAST_DAYS = 14;
+
         const LS_KEY = "lawnMower.lastCut.v1";
-        const LS_WX = "lawnMower.weather.v1";
+        const LS_WX = "lawnMower.weather.v2";
+
+        /* ---------- Weather icons (Open-Meteo WMO weather_code) ---------- */
+        function wxIcon(code, rainPct) {
+            code = code ?? 0;
+            if (code === 0 || code === 1) return "☀️";
+            if (code === 2) return "⛅";
+            if (code === 3) return "☁️";
+            if (code === 45 || code === 48) return "🌫️";
+            if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return "🌧️";
+            if (code === 95) return "⛈️";
+            if (code >= 71 && code <= 78) return "❄️";
+            // Cloudy but likely to rain: hint at it rather than a misleading sun.
+            return rainPct > 50 ? "🌦️" : "☁️";
+        }
+
+        /* ---------- Best time-of-day window (hourly dew point / wind) ---------- */
+        const H = 1000 * 60 * 60;
+
+        // Find when grass is mowable that day: dry (dew-point spread ≥ 8°F so it
+        // isn't just wet air), not too hot (<95°F — you don't want to scorch a
+        // freshly cut lawn) and calm-ish wind (<20 mph). Returns null if the
+        // whole window is marginal. All date math uses local Date objects so
+        // the "already past" filter works regardless of timezone.
+        function bestMowWindow(day, nowTs = Date.now()) {
+            const h = day.hourly;
+            if (!h || !h.length) return null;
+            const m = new Date(day.date + "T12:00:00");
+            const noon = new Date(m.getFullYear(), m.getMonth(), m.getDate(), 12).getTime();
+            let start = -1, end = -1;
+            for (let i = 0; i < h.length; i++) {
+                const hh = +String(h.time[i]).slice(0, 2);
+                const ts = noon + (hh - 12) * H;
+                if (ts <= nowTs || hh >= 17) continue; // skip hours already past / after ~5pm
+                const spread = h.temperature_2m[i] - h.dew_point_2m[i];
+                const ok = spread >= 8 && h.temperature_2m[i] < 95 && h.wind_speed_10m[i] < 20;
+                if (ok) {
+                    if (start === -1) start = i;
+                    end = i;
+                }
+            }
+            if (start === -1) return null;
+            const fmt = (i) => new Date(m.getFullYear(), m.getMonth(), m.getDate(), +String(h.time[i]).slice(0, 2))
+                .toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+            // Drying time: first morning hour (before the window starts) when
+            // dew has burned off — temp ≥ dew point means the air is drier than
+            // the grass.
+            let dryAt = null;
+            for (let i = 0; i <= start; i++) {
+                const hh = +String(h.time[i]).slice(0, 2);
+                if (hh >= 17 || noon + (hh - 12) * H > nowTs) continue;
+                if (h.dew_point_2m[i] !== null && h.temperature_2m[i] - h.dew_point_2m[i] >= 0.5) {
+                    dryAt = new Date(m.getFullYear(), m.getMonth(), m.getDate(), hh);
+                }
+            }
+            return { start: fmt(start), end: fmt(end), dryAt };
+        }
+
+        /* ---------- Cut analytics (data already in localStorage) ---------- */
+        function monthCuts(history) {
+            const m = new Date().getMonth(), y = new Date().getFullYear();
+            return history.filter((t) => { const d = new Date(t); return d.getMonth() === m && d.getFullYear() === y; }).length;
+        }
+
+        // Last up-to-6 intervals (days between consecutive cuts, oldest→newest).
+        function intervalSeries(history) {
+            if (history.length < 2) return [];
+            const asc = [...history].sort((a, b) => a - b);
+            const DAY_MS = H * 24;
+            const out = [];
+            for (let i = Math.max(1, asc.length - 6); i < asc.length; i++) {
+                out.push(Math.max(0, Math.round((asc[i] - asc[i - 1]) / DAY_MS)));
+            }
+            return out;
+        }
+
+        // Tiny inline SVG sparkline (values left→right).
+        function sparkSVG(values) {
+            const w = 74, hgt = 24, pad = 3;
+            if (!values.length) return "";
+            const max = Math.max(...values);
+            const min = Math.min(...values);
+            const span = Math.max(1, max - min);
+            const pts = values.map((v, i) => {
+                const x = pad + (i * (w - 2 * pad)) / Math.max(1, values.length - 1);
+                const y = hgt - pad - ((v - min) / span) * (hgt - 2 * pad);
+                return `${x.toFixed(1)},${y.toFixed(1)}`;
+            });
+            return `<svg width="${w}" height="${hgt}" viewBox="0 0 ${w} ${hgt}" aria-hidden="true">` +
+                `<polyline points="${pts.join(" ")}" fill="none" stroke="#2f9e44" stroke-width="1.6" ` +
+                `stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+        }
+
+        function statsFor(history) {
+            const n = history.length;
+            if (!n) return null;
+            const series = intervalSeries(history);
+            let avgInt = null, trend = "";
+            if (series.length >= 2) {
+                avgInt = Math.round(series.reduce((a, b) => a + b, 0) / series.length);
+                const half = Math.floor(series.length / 2);
+                const older = series.slice(0, half).reduce((a, b) => a + b, 0) / half;
+                const newer = series.slice(half).reduce((a, b) => a + b, 0) / (series.length - half);
+                if (newer < older * 0.9) trend = "shortening — you're cutting more often";
+                else if (newer > older * 1.1) trend = "lengthening — you're cutting less often";
+            }
+            return { n, avgInt, series, trend };
+        }
+
+        function appendCardStats(info, history) {
+            const s = statsFor(history);
+            if (!s || s.n < 2) return; // need at least two cuts to say anything
+            const box = document.createElement("div");
+            box.className = "card-stats";
+
+            let line1;
+            if (s.avgInt != null) {
+                line1 = `Avg interval: ${s.avgInt} days`;
+                if (s.trend) line1 += ` · trend ${s.trend}`;
+            } else {
+                line1 = "Not enough cuts yet for a pattern";
+            }
+            const l1 = document.createElement("div");
+            l1.className = "stat-line";
+            l1.textContent = `${line1} · ${monthCuts(history)} cut${monthCuts(history) === 1 ? "" : "s"} this month`;
+            box.appendChild(l1);
+
+            if (s.series.length >= 2) {
+                const row = document.createElement("div");
+                row.className = "spark-row";
+                const lbl = document.createElement("span");
+                lbl.className = "spark-label";
+                lbl.textContent = "Last cuts (days apart)";
+                const svgWrap = document.createElement("span");
+                svgWrap.innerHTML = sparkSVG(s.series);
+                row.append(lbl, svgWrap);
+                box.appendChild(row);
+            }
+            info.appendChild(box);
+        }
 
         /* Cache the last good forecast so a failed live fetch (offline, etc.)
            still shows weather instead of a blank section. */
         function saveWeather(days) {
             try { localStorage.setItem(LS_WX, JSON.stringify({ at: Date.now(), days })); } catch { /* ignore */ }
         }
-        function loadCachedWeather() {
+
+        // Full cached forecast envelope ({at, days}) or null — used by the UI to
+        // flag stale/offline data and by the background-sync notification path.
+        function loadWeatherEnvelope() {
             try {
                 const c = JSON.parse(localStorage.getItem(LS_WX));
-                if (c && Array.isArray(c.days) && c.days.length) return c.days;
+                if (c && Array.isArray(c.days) && c.days.length && c.at) return c;
             } catch { /* ignore */ }
             return null;
+        }
+
+        function loadCachedWeather() {
+            const env = loadWeatherEnvelope();
+            return env ? env.days : null;
+        }
+
+        // "Updated 6:12 AM" / "Updated yesterday · offline" for the forecast header.
+        function wxStatusText(envelope) {
+            if (!envelope || !envelope.at) return "";
+            const d = new Date(envelope.at);
+            let when;
+            if (d.toDateString() === new Date().toDateString()) {
+                when = "Updated " + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+            } else {
+                when = "Updated " + d.toLocaleDateString([], { month: "short", day: "numeric" }) +
+                    " at " + d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+            }
+            return envelope.offline ? when + " · offline" : when;
+        }
+
+        function renderWxStatus() {
+            const el = $("wxStatus");
+            if (!el) return;
+            const text = wxStatusText(state.wxEnvelope);
+            el.textContent = text;
+            el.classList.toggle("stale", !!(text && state.wxEnvelope && state.wxEnvelope.offline));
         }
 
         /* ============================================================
@@ -769,6 +1073,9 @@
                     info.appendChild(hist);
                 }
 
+                // Aggregated analytics (avg interval, trend, cuts this month).
+                appendCardStats(info, history);
+
                 const btn = document.createElement("button");
                 btn.className = "cut-btn";
                 btn.type = "button";
@@ -790,6 +1097,7 @@
             saveCuts(cuts);
             renderCards();
             renderRecommendation(); // status may have changed (e.g. all green now)
+            renderAlerts();         // the daily digest's "most overdue" line changes too
             if (btn) {
                 btn.classList.add("done");
                 btn.textContent = "Logged!";
@@ -841,6 +1149,10 @@
                 const row = document.createElement("div");
                 row.className = "frow";
 
+                const iconEl = document.createElement("div");
+                iconEl.className = "ficon";
+                iconEl.textContent = wxIcon(d.weather_code ?? 0, d.precipitation_probability_max);
+
                 const left = document.createElement("div");
                 const dayName = new Date(d.date + "T12:00:00").toLocaleDateString([], {
                     weekday: "short",
@@ -871,7 +1183,42 @@
                 frain.textContent = `💧 ${d.precipitation_probability_max ?? 0}% rain`;
                 right.append(ftemp, frain);
 
-                row.append(left, right);
+                row.append(iconEl, left, right);
+                wrap.appendChild(row);
+            });
+        }
+
+        // Compact day-by-day list for everything BEYOND the 3-day strip.
+        // globalBestIdx is an index into the full `days` window; -1 = no highlight.
+        function renderExtended(days, globalBestIdx) {
+            const wrap = $("extended");
+            wrap.innerHTML = "";
+            if (!days || !days.length) {
+                wrap.classList.add("hidden");
+                return;
+            }
+            wrap.classList.remove("hidden");
+            days.slice(3).forEach((d, k) => {
+                const i = k + 3;
+                const row = document.createElement("div");
+                row.className = "xrow" + (i === globalBestIdx ? " best" : "");
+
+                const icon = document.createElement("span");
+                icon.className = "xicon";
+                icon.textContent = wxIcon(d.weather_code ?? 0, d.precipitation_probability_max);
+
+                const dl = document.createElement("span");
+                dl.className = "xday";
+                const dayName = new Date(d.date + "T12:00:00").toLocaleDateString([], {
+                    weekday: "short", month: "short", day: "numeric"
+                });
+                dl.textContent = (i === globalBestIdx ? "★ " : "") + dayName;
+
+                const r = document.createElement("span");
+                r.className = "xr";
+                r.textContent = `${Math.round(d.temperature_2m_max)}° · ${d.precipitation_probability_max ?? 0}%`;
+
+                row.append(icon, dl, r);
                 wrap.appendChild(row);
             });
         }
@@ -890,7 +1237,7 @@
                 rec.classList.add("is-neutral");
                 main.textContent = "No cut needed 🌱";
                 detail.innerHTML = `All of your lawns were cut within the last ${GREEN_MAX} days. Enjoy the break — we'll flag a day when one starts to grow back.`;
-                if (hasForecast) renderForecast(state.days, -1);
+                if (hasForecast) { renderForecast(state.days.slice(0, 3), -1); renderExtended(state.days, -1); }
                 return;
             }
 
@@ -898,10 +1245,12 @@
                 rec.classList.add("is-neutral");
                 main.textContent = "Forecast unavailable";
                 detail.textContent = "We couldn't load the weather, so we can't pick a day. Check your connection and pull to refresh.";
+                renderExtended(null, -1);
                 return;
             }
 
-            // Pick the best of the next 3 days.
+            // Score the WHOLE window (up to 14 days) — a drier day may come on
+            // day 6 or 9, and that's now an actual recommendation.
             let bestIdx = 0, bestScore = -Infinity;
             state.days.forEach((d, i) => {
                 const s = scoreDay(d).score;
@@ -912,37 +1261,61 @@
             const dayName = new Date(best.date + "T12:00:00").toLocaleDateString([], {
                 weekday: "long", month: "short", day: "numeric"
             });
+            // Human distance ("today", "tomorrow", "in 4 days") instead of a bare date.
+            let when;
+            if (bestIdx === 0) when = "Today";
+            else if (bestIdx === 1) when = "Tomorrow";
+            else when = `in ${bestIdx} days`;
 
             const worst = PROPERTIES
                 .map((p) => ({ p, days: daysSince(lastCut(p.id)) }))
                 .sort((a, b) => (b.days ?? 999) - (a.days ?? 999))[0];
 
-            if (bestInfo.rain <= 30) {
-                rec.classList.add("is-good");
-                main.textContent = `Best day: ${dayName} ☀️`;
-                detail.innerHTML =
-                    `Low rain chance (<b>${bestInfo.rain}%</b>) and a comfortable <b>${Math.round(bestInfo.temp)}°F</b>. ` +
-                    `Most overdue: <b>${worst.p.name}</b>${worst.days === null ? " (never cut)" : ` (${worst.days} day${worst.days === 1 ? "" : "s"} ago)`}.`;
-            } else {
-                rec.classList.add("is-warn");
-                main.textContent = `Best available: ${dayName} ⚠️`;
-                detail.innerHTML =
-                    `It's the driest of the next 3 days, but rain chance is <b>${bestInfo.rain}%</b> and it's about <b>${Math.round(bestInfo.temp)}°F</b>. ` +
-                    `If you can wait, a drier day may come. ` +
-                    `Most overdue: <b>${worst.p.name}</b>${worst.days === null ? " (never cut)" : ` (${worst.days} day${worst.days === 1 ? "" : "s"} ago)`}.`;
+            // Best time-of-day window for the recommended day (hourly data).
+            const win = bestMowWindow(best);
+            let winText = "";
+            if (win) {
+                let s = `Best window: <b>${win.start}–${win.end}</b>`;
+                if (win.dryAt) s += `, grass dries by ~<b>${win.dryAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</b>`;
+                winText = ` ${s}.`;
             }
 
-            renderForecast(state.days, bestIdx);
+            const overdueBit = `Most overdue: <b>${worst.p.name}</b>${worst.days === null ? " (never cut)" : ` (${worst.days} day${worst.days === 1 ? "" : "s"} ago)`}.`;
+
+            if (bestInfo.rain <= 30) {
+                rec.classList.add("is-good");
+                main.textContent = `${dayName}${bestIdx > 2 ? ` ★` : ""}`;
+                detail.innerHTML =
+                    `${when}: low rain chance (<b>${bestInfo.rain}%</b>) and a comfortable <b>${Math.round(bestInfo.temp)}°F</b> — the best day of the next two weeks.${winText} ${overdueBit}`;
+            } else {
+                rec.classList.add("is-warn");
+                main.textContent = `${dayName}${bestIdx > 2 ? ` ★` : ""}`;
+                detail.innerHTML =
+                    `It's the driest of the next ${Math.min(FORECAST_DAYS, state.days.length)} days (${when}), but rain chance is <b>${bestInfo.rain}%</b> and it's about <b>${Math.round(bestInfo.temp)}°F</b>. Nothing better shows up in the two-week outlook.${winText} ${overdueBit}`;
+            }
+
+            // 3-day strip keeps its own best-of-3 tag (unchanged behavior).
+            let stripBest = 0, stripScore = -Infinity;
+            state.days.slice(0, 3).forEach((d, i) => {
+                const s = scoreDay(d).score;
+                if (s > stripScore) { stripScore = s; stripBest = i; }
+            });
+            renderForecast(state.days.slice(0, 3), stripBest);
+            // Extended list highlights the GLOBAL best day.
+            renderExtended(state.days, bestIdx);
         }
 
-        const state = { days: null };
+        const state = { days: null, wxEnvelope: null };
 
         async function loadWeather() {
             showOverlay(true);
             try {
+                // Daily data for the full 14-day horizon + hourly dew point / wind
+                // (only day-1 matters — that's where time-of-day advice applies).
                 const url = `${WX_URL}?latitude=${LAT}&longitude=${LON}` +
-                    `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum` +
-                    `&temperature_unit=fahrenheit&timezone=auto&forecast_days=3`;
+                    `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,weather_code` +
+                    `&hourly=temperature_2m,dew_point_2m,wind_speed_10m&wind_speed_unit=mph` +
+                    `&temperature_unit=fahrenheit&timezone=auto&forecast_days=${FORECAST_DAYS}`;
                 const data = await fetchJSON(url);
                 // Open-Meteo returns parallel arrays; convert to an array of day objects.
                 const d = data.daily;
@@ -952,16 +1325,31 @@
                     temperature_2m_min: d.temperature_2m_min[i],
                     precipitation_probability_max: d.precipitation_probability_max[i],
                     precipitation_sum: d.precipitation_sum[i],
+                    weather_code: (d.weather_code || [])[i] ?? 0,
                 }));
+                // Attach the FIRST day's hourly series for time-of-day analysis.
+                if (data.hourly && data.daily.time.length) {
+                    const d0 = data.daily.time[0];
+                    state.days[0].hourly = {
+                        time: data.hourly.time.filter((t) => t.slice(0, 10) === d0),
+                        temperature_2m: data.hourly.temperature_2m.filter((_, i) => data.hourly.time[i] && data.hourly.time[i].slice(0, 10) === d0),
+                        dew_point_2m: data.hourly.dew_point_2m.filter((_, i) => data.hourly.time[i] && data.hourly.time[i].slice(0, 10) === d0),
+                        wind_speed_10m: data.hourly.wind_speed_10m.filter((_, i) => data.hourly.time[i] && data.hourly.time[i].slice(0, 10) === d0),
+                    };
+                }
+                state.wxEnvelope = { at: Date.now(), offline: false, days: state.days };
                 saveWeather(state.days);
                 renderRecommendation();
             } catch {
                 // Live fetch failed — fall back to the last good forecast so the
                 // section isn't blank (e.g. phone was offline when reopened).
-                state.days = loadCachedWeather();
+                const env = loadWeatherEnvelope();
+                state.wxEnvelope = env ? { at: env.at, offline: true, days: env.days } : null;
+                state.days = env ? env.days : null;
                 renderRecommendation();
             } finally {
                 showOverlay(false);
+                renderWxStatus();
             }
         }
 
@@ -1061,11 +1449,139 @@
         }
 
         /* ============================================================
+         *  Daily alerts — Notification API + Background Sync (sw.js)
+         *  One short digest per day: best mowing window + any lawns that
+         *  are due/overdue. Fires even with the app closed, because the
+         *  service worker runs it in the background (Android: periodic;
+         *  elsewhere: when the device is back online / on app open).
+         * ============================================================ */
+        const LS_ALERTS = "lawnMower.alerts.v1";
+        const LS_NOTED = "lawnMower.alerts.lastNote";
+
+        function loadAlertPrefs() {
+            try { return JSON.parse(localStorage.getItem(LS_ALERTS)) || {}; } catch { return {}; }
+        }
+        function saveAlertPrefs(p) { localStorage.setItem(LS_ALERTS, JSON.stringify(p)); }
+
+        // Today's digest text — the preview in the Alerts card and what a page-side
+        // notification would say. The background sync builds its own copy from
+        // raw localStorage (same shape).
+        function buildDigest() {
+            const env = state.wxEnvelope;
+            const days = env ? env.days : null;
+            let bestLine = "Best mowing day unknown — open Lawnwave to refresh the forecast";
+            if (days && days.length) {
+                let bi = 0, bs = -Infinity;
+                days.forEach((d, i) => { const s = scoreDay(d).score; if (s > bs) { bs = s; bi = i; } });
+                const b = days[bi];
+                const info = scoreDay(b);
+                const name = new Date(b.date + "T12:00:00").toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
+                bestLine = `${name} is your best mowing day (rain ${info.rain}%, ~${Math.round(info.temp)}°F)`;
+            }
+
+            // Most overdue / never-cut property. A never-cut lawn outranks any
+            // overdue count; otherwise the highest days-since-last-cut wins.
+            let worstName = null, worstDays = -1, worstNever = false;
+            PROPERTIES.forEach((p) => {
+                const ts = lastCut(p.id);
+                const days = ts ? daysSince(ts) : null;
+                if (days === null) {
+                    worstNever = true;
+                    worstName = p.name; // keep the first never-cut one seen
+                } else if (!worstNever && days > worstDays) {
+                    worstDays = days;
+                    worstName = p.name;
+                }
+            });
+
+            let dueLine = "All lawns fresh — no cuts due";
+            if (worstNever) {
+                dueLine = `${worstName} has never been cut`;
+            } else if (worstDays >= GREEN_MAX) {
+                dueLine = `${worstName} is ${worstDays} days since last cut${worstDays > YELLOW_MAX ? " — overdue" : ""}`;
+            }
+            return { title: "Lawnwave daily", body: bestLine + " · " + dueLine };
+        }
+
+        async function registerDailySync() {
+            if (!("serviceWorker" in navigator)) return;
+            try {
+                const reg = await navigator.serviceWorker.ready;
+                if (reg.sync) await reg.sync.register("lawnwave-daily"); // idempotent; keeps the cadence alive
+            } catch { /* older browser — page-side nudge still works */ }
+        }
+
+        // Fallback for browsers without Background Sync (e.g. iOS Safari):
+        // one notification per ~12h when the app is opened, if alerts are on.
+        function maybeDailyNudge() {
+            const prefs = loadAlertPrefs();
+            if (!prefs.enabled) return;
+            try {
+                if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+                    const last = +localStorage.getItem(LS_NOTED) || 0;
+                    if (Date.now() - last > 43200000) { // ~12h, shared with sw.js
+                        localStorage.setItem(LS_NOTED, String(Date.now()));
+                        const d = buildDigest();
+                        new Notification(d.title, { body: d.body, icon: "icon.svg", tag: "lawnwave-daily" });
+                    }
+                }
+            } catch { /* ignore */ }
+        }
+
+        function renderAlerts() {
+            const wrap = $("alerts");
+            if (!wrap) return;
+            wrap.innerHTML = "";
+
+            let perm = "unsupported";
+            try { perm = Notification.permission; } catch { /* no API at all */ }
+            const supported = perm !== "unsupported" && ("serviceWorker" in navigator);
+            const prefs = loadAlertPrefs();
+
+            const note = document.createElement("p");
+            note.className = "alert-note";
+            if (!supported) {
+                note.textContent = "Daily alerts need notifications + a service worker (Chrome/Edge on Android, Safari 16+ on iPhone). Everything else works offline.";
+            } else if (perm === "granted" && prefs.enabled) {
+                const d = buildDigest();
+                note.innerHTML = `On — you'll get one short note each day, like:<br><b>"${d.body}"</b>`;
+            } else if (perm === "denied") {
+                note.textContent = "Notifications are blocked in your browser settings for this site — allow them to get daily mowing alerts.";
+            } else {
+                note.textContent = "One short notification each day: the best mowing window and any lawns that are due. Works even with the app closed (add Lawnwave to your home screen).";
+            }
+            wrap.appendChild(note);
+
+            if (!supported || perm === "denied") return;
+
+            const btn = document.createElement("button");
+            btn.type = "button";
+            const on = perm === "granted" && prefs.enabled;
+            btn.className = "data-btn" + (on ? " secondary" : "");
+            btn.textContent = on ? "Turn off daily alerts" : "Enable daily alerts";
+            btn.addEventListener("click", async () => {
+                if (!on) {
+                    let p;
+                    try { p = await Notification.requestPermission({ overrideInteractionRequired: true }); }
+                    catch (e) { p = Notification.permission; } // Safari ignores the option
+                    prefs.enabled = (p === "granted");
+                } else {
+                    prefs.enabled = false;
+                }
+                saveAlertPrefs(prefs);
+                if (prefs.enabled) registerDailySync();
+                renderAlerts();
+            });
+            wrap.appendChild(btn);
+        }
+
+        /* ============================================================
          *  Init
          * ============================================================ */
         renderCards();
-        loadWeather();
+        loadWeather().then(() => { maybeDailyNudge(); });
         wireDataButtons();
+        renderAlerts();
 
         // Refresh the forecast when the tab becomes visible again (e.g. returning to the app).
         document.addEventListener("visibilitychange", () => {
