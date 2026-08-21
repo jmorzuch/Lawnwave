@@ -654,6 +654,16 @@
             line-height: 1.5
         }
 
+        .alert-ver {
+            margin-top: auto;
+            padding-top: 4px;
+            font-size: .62rem;
+            letter-spacing: .04em;
+            text-align: right;
+            color: var(--muted);
+            opacity: .55
+        }
+
         .alert-toast {
             margin-top: 2px;
             padding: 10px 14px;
@@ -1486,6 +1496,7 @@
          * ============================================================ */
         const LS_ALERTS = "lawnMower.alerts.v1";
         const LS_NOTED = "lawnMower.alerts.lastNote";
+        const APP_VERSION = 5; // bump with the sw.js cache name on every index.html change
 
         function loadAlertPrefs() {
             try { return JSON.parse(localStorage.getItem(LS_ALERTS)) || {}; } catch { return {}; }
@@ -1607,35 +1618,63 @@
             const on = perm === "granted" && prefs.enabled;
             btn.className = "data-btn" + (on ? " secondary" : "");
             btn.textContent = on ? "Turn off daily alerts" : "Enable daily alerts";
+
+            let asking = false; // guards double-taps while Chrome's bar is up
+            const toastWarn = (msg) => {
+                const t = document.createElement("div");
+                t.className = "alert-toast warn";
+                t.textContent = msg;
+                wrap.appendChild(t);
+                setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 400); }, 6500);
+            };
+
             btn.addEventListener("click", async () => {
-                if (on) {
-                    prefs.enabled = false;
-                } else if (perm === "granted") {
+                if (asking) return; // Chrome's permission bar is already on screen
+                if (on) { prefs.enabled = false; }
+                else if (perm === "granted") {
                     // Already granted — just flip the pref and prove it works.
                     prefs.enabled = true;
+                    saveAlertPrefs(prefs);
                     toastAlertsOn();
+                    registerDailySync();
+                    renderAlerts();
+                    return;
                 } else {
+                    asking = true;
                     let p;
                     try { p = await Notification.requestPermission({ overrideInteractionRequired: true }); }
                     catch (e) { p = Notification.permission; } // Safari ignores the option
-                    if (p === "granted") {
-                        prefs.enabled = true;
-                        toastAlertsOn();
-                    } else if (p === "default") {
-                        // The user dismissed Chrome's bottom permission bar without
-                        // tapping Allow — tell them instead of silently doing nothing.
-                        const t = document.createElement("div");
-                        t.className = "alert-toast warn";
-                        t.textContent = "Almost! Look for the “Allow notifications?” banner at the very bottom of the screen and tap Allow.";
-                        wrap.appendChild(t);
-                        setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 400); }, 5200);
+
+                    if (p === "granted") { prefs.enabled = true; toastAlertsOn(); }
+                    else if (p === "denied") {
+                        toastWarn("Notifications are blocked for this site — allow them in Chrome's site settings (address bar → 🔒/ℹ icon → Site settings), then tap again.");
+                    } else {
+                        // Still "default". On Android installed PWAs Chrome sometimes never
+                        // shows its bottom permission bar, so the tap looks dead. Safety net:
+                        // open a NORMAL tab where the bar reliably appears — granting there is
+                        // origin-wide, so it fixes this installed app too (same localStorage).
+                        let nowP = "default"; try { nowP = Notification.permission; } catch {}
+                        if (nowP === "default") {
+                            toastWarn("No permission bar appeared here. I opened Lawnwave in a regular Chrome tab — tap “Enable daily alerts” there and hit Allow when the bottom banner shows.");
+                            try { window.open(location.origin, "_blank", "noopener"); } catch {}
+                        } else {
+                            toastWarn("Almost! Look for the “Allow notifications?” banner at the very bottom of the screen and tap Allow.");
+                        }
                     }
+                    asking = false;
                 }
                 saveAlertPrefs(prefs);
                 if (prefs.enabled) registerDailySync();
                 renderAlerts();
             });
             wrap.appendChild(btn);
+
+            // Tiny build tag: proves which app version this device actually loaded, so a
+            // "nothing happens" report is instantly distinguishable from stale-shell.
+            const ver = document.createElement("p");
+            ver.className = "alert-ver";
+            ver.textContent = `app v${APP_VERSION}`;
+            wrap.appendChild(ver);
         }
 
         /* ============================================================
