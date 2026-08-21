@@ -12,7 +12,7 @@
  * fires on reconnect / app open. We send at most one notification per ~12h,
  * sharing that throttle with the page-side fallback via localStorage.
  */
-const CACHE = "lawn-mower-v5"; // bump on every index.html change: cache-first serves stale shells otherwise (v5: alerts dead-tap fix + app version tag)
+const CACHE = "lawn-mower-v6"; // bump on every index.html change: cache-first serves stale shells otherwise (v6: permission-bar fallback opens location.href, not origin — /Lawnwave subdirectory)
 const APP_SHELL = [
     "./",
     "./index.html",
