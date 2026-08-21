@@ -12,7 +12,7 @@
  * fires on reconnect / app open. We send at most one notification per ~12h,
  * sharing that throttle with the page-side fallback via localStorage.
  */
-const CACHE = "lawn-mower-v2";
+const CACHE = "lawn-mower-v3"; // v3: bust stale cache-first shells (14-day UI rollout)
 const APP_SHELL = [
     "./",
     "./index.html",
