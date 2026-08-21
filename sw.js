@@ -12,7 +12,7 @@
  * fires on reconnect / app open. We send at most one notification per ~12h,
  * sharing that throttle with the page-side fallback via localStorage.
  */
-const CACHE = "lawn-mower-v7"; // bump on every index.html change: cache-first serves stale shells otherwise (v7: never cache sw.js itself — it was pinning phones at the first version they got)
+const CACHE = "lawn-mower-v8"; // bump on every index.html change: cache-first serves stale shells otherwise (v7: never cache sw.js itself — it was pinning phones at the first version they got; v8: dead-tap fallback opens ?src=grant tab variant + clipboard backup, persistent grant banner)
 const APP_SHELL = [
     "./",
     "./index.html",

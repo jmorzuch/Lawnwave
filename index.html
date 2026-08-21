@@ -31,6 +31,8 @@
             --red: #c92a2a;
             --red-bg: #ffe3e3;
             --red-border: #ff8787;
+            --blue-bg: #eaf3ff;
+            --blue-border: #b9d7f5;
         }
 
         html {
@@ -681,6 +683,16 @@
             color: #7c4a03;
             background: var(--yellow-bg);
             border-color: var(--yellow-border)
+        }
+
+        .grant-banner {
+            padding: 12px 14px;
+            border-radius: 12px;
+            font-size: .86rem;
+            line-height: 1.5;
+            color: #0f4c8a;
+            background: var(--blue-bg, #eaf3ff);
+            border: 1px solid var(--blue-border, #b9d7f5)
         }
 
         .alert-toast.out {
@@ -1496,7 +1508,7 @@
          * ============================================================ */
         const LS_ALERTS = "lawnMower.alerts.v1";
         const LS_NOTED = "lawnMower.alerts.lastNote";
-        const APP_VERSION = 7; // bump with the sw.js cache name on every index.html change
+        const APP_VERSION = 8; // bump with the sw.js cache name on every index.html change
 
         function loadAlertPrefs() {
             try { return JSON.parse(localStorage.getItem(LS_ALERTS)) || {}; } catch { return {}; }
@@ -1620,12 +1632,12 @@
             btn.textContent = on ? "Turn off daily alerts" : "Enable daily alerts";
 
             let asking = false; // guards double-taps while Chrome's bar is up
-            const toastWarn = (msg) => {
+            const toastWarn = (msg, ms) => {
                 const t = document.createElement("div");
                 t.className = "alert-toast warn";
                 t.textContent = msg;
                 wrap.appendChild(t);
-                setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 400); }, 6500);
+                setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 400); }, ms || 6500);
             };
 
             btn.addEventListener("click", async () => {
@@ -1642,23 +1654,29 @@
                 } else {
                     asking = true;
                     let p;
-                    try { p = await Notification.requestPermission({ overrideInteractionRequired: true }); }
+                    try { p = await Notification.requestPermission({ overrideInteractionRequirement: true }); }
                     catch (e) { p = Notification.permission; } // Safari ignores the option
 
                     if (p === "granted") { prefs.enabled = true; toastAlertsOn(); }
                     else if (p === "denied") {
                         toastWarn("Notifications are blocked for this site — allow them in Chrome's site settings (address bar → 🔒/ℹ icon → Site settings), then tap again.");
                     } else {
-                        // Still "default". On Android installed PWAs Chrome sometimes never
+                        // Still "default". On Android installed PWAs Edge/Chrome sometimes never
                         // shows its bottom permission bar, so the tap looks dead. Safety net:
-                        // open a NORMAL tab where the bar reliably appears — granting there is
-                        // origin-wide, so it fixes this installed app too (same localStorage).
+                        // open a URL VARIANT in a real browser tab — ?src=grant typically breaks
+                        // Edge's URL→installed-app matching (a plain location.href just re-launches
+                        // this app standalone; user confirmed that loop). Granting there is
+                        // origin-wide, so it fixes this installed app too. The link is also copied
+                        // as a guaranteed backup if the popup got killed by a blocker.
                         let nowP = "default"; try { nowP = Notification.permission; } catch {}
                         if (nowP === "default") {
-                            toastWarn("No permission bar appeared here. I opened this page in a regular Chrome tab — tap “Enable daily alerts” there and hit Allow when the bottom banner shows.");
+                            const grantUrl = location.href.split("#")[0] + (location.search ? "&" : "?") + "src=grant";
+                            let copied = false;
+                            try { await navigator.clipboard.writeText(grantUrl); copied = true; } catch {}
+                            toastWarn("No permission bar appeared here. Opened Lawnwave in a regular Edge tab — tap “Enable daily alerts” there and hit Allow when the banner at the bottom edge shows." + (copied ? " (Link also copied as backup.)" : ""), 9000);
                             // location.href, NOT .origin: on GitHub Pages the site lives in a /Lawnwave subdirectory,
                             // so the bare origin root is a 404 (learned the hard way from user report).
-                            try { window.open(location.href, "_blank", "noopener"); } catch {}
+                            try { window.open(grantUrl, "_blank", "noopener"); } catch {}
                         } else {
                             toastWarn("Almost! Look for the “Allow notifications?” banner at the very bottom of the screen and tap Allow.");
                         }
@@ -1680,12 +1698,27 @@
         }
 
         /* ============================================================
+         *  ?src=grant — opened by the dead-tap safety net. A persistent (not
+         *  fading) banner so a user who lands here can't miss what to do; on
+         *  success renderAlerts() re-renders and replaces it with the "On" state.
+         * ============================================================ */
+        function showGrantBanner() {
+            const wrap = $("alerts");
+            if (!wrap) return;
+            const b = document.createElement("div");
+            b.className = "grant-banner";
+            b.innerHTML = "<b>You're in the right place.</b> This is a regular Edge/Chrome tab — tap <b>Enable daily alerts</b> below and hit <b>Allow</b> when the banner appears at the very bottom edge of the screen. Once allowed, it works inside the installed app too.";
+            wrap.appendChild(b);
+        }
+
+        /* ============================================================
          *  Init
          * ============================================================ */
         renderCards();
         loadWeather().then(() => { maybeDailyNudge(); });
         wireDataButtons();
         renderAlerts();
+        try { if (new URLSearchParams(location.search).get("src") === "grant") showGrantBanner(); } catch {}
 
         // Refresh the forecast when the tab becomes visible again (e.g. returning to the app).
         document.addEventListener("visibilitychange", () => {
