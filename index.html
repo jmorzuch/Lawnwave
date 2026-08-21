@@ -654,6 +654,35 @@
             line-height: 1.5
         }
 
+        .alert-toast {
+            margin-top: 2px;
+            padding: 10px 14px;
+            border-radius: 12px;
+            font-size: .84rem;
+            font-weight: 700;
+            color: #1b6b30;
+            background: var(--green-bg);
+            border: 1px solid var(--green-border);
+            animation: toast-in .25s ease-out;
+            transition: opacity .4s, transform .4s
+        }
+
+        .alert-toast.warn {
+            color: #7c4a03;
+            background: var(--yellow-bg);
+            border-color: var(--yellow-border)
+        }
+
+        .alert-toast.out {
+            opacity: 0;
+            transform: translateY(-6px)
+        }
+
+        @keyframes toast-in {
+            from { opacity: 0; transform: translateY(8px) }
+            to { opacity: 1; transform: none }
+        }
+
         @media (max-width: 380px) {
             .card {
                 flex-direction: column;
@@ -1528,6 +1557,25 @@
             } catch { /* ignore */ }
         }
 
+        // Confirmation feedback after enabling alerts: flip state is visible AND,
+        // when permission allows, fire a real test notification so Android users
+        // can see it land (and tap it to learn where notifications show up).
+        function toastAlertsOn() {
+            const wrap = $("alerts");
+            if (!wrap) return;
+            try {
+                new Notification("Lawnwave daily", {
+                    body: "You're all set — this is a test. You'll get one note like this each day.",
+                    icon: "icon.svg", tag: "lawnwave-daily"
+                });
+            } catch { /* page-side notification unavailable — toast still shows */ }
+            const t = document.createElement("div");
+            t.className = "alert-toast";
+            t.textContent = "Daily alerts are on ✓ (check your notification shade for the test note)";
+            wrap.appendChild(t);
+            setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 400); }, 5200);
+        }
+
         function renderAlerts() {
             const wrap = $("alerts");
             if (!wrap) return;
@@ -1560,13 +1608,28 @@
             btn.className = "data-btn" + (on ? " secondary" : "");
             btn.textContent = on ? "Turn off daily alerts" : "Enable daily alerts";
             btn.addEventListener("click", async () => {
-                if (!on) {
+                if (on) {
+                    prefs.enabled = false;
+                } else if (perm === "granted") {
+                    // Already granted — just flip the pref and prove it works.
+                    prefs.enabled = true;
+                    toastAlertsOn();
+                } else {
                     let p;
                     try { p = await Notification.requestPermission({ overrideInteractionRequired: true }); }
                     catch (e) { p = Notification.permission; } // Safari ignores the option
-                    prefs.enabled = (p === "granted");
-                } else {
-                    prefs.enabled = false;
+                    if (p === "granted") {
+                        prefs.enabled = true;
+                        toastAlertsOn();
+                    } else if (p === "default") {
+                        // The user dismissed Chrome's bottom permission bar without
+                        // tapping Allow — tell them instead of silently doing nothing.
+                        const t = document.createElement("div");
+                        t.className = "alert-toast warn";
+                        t.textContent = "Almost! Look for the “Allow notifications?” banner at the very bottom of the screen and tap Allow.";
+                        wrap.appendChild(t);
+                        setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 400); }, 5200);
+                    }
                 }
                 saveAlertPrefs(prefs);
                 if (prefs.enabled) registerDailySync();
