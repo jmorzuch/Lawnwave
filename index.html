@@ -357,7 +357,7 @@
             color: #c92a2a
         }
 
-        /* ---------- 3-day forecast strip ---------- */
+        /* ---------- 7-day forecast strip ---------- */
         .forecast {
             padding: 16px 18px;
             display: flex;
@@ -558,51 +558,6 @@
             font-weight: 700
         }
 
-        /* ---------- Extended outlook (day 4–14) ---------- */
-        .extended {
-            padding: 12px 14px;
-            display: flex;
-            flex-direction: column;
-            gap: 4px
-        }
-
-        .xrow {
-            display: grid;
-            grid-template-columns: auto 1fr auto;
-            gap: 10px;
-            align-items: center;
-            font-size: .8rem;
-            color: var(--muted);
-            padding: 6px 10px;
-            border-radius: 12px
-        }
-
-        .xrow .xicon {
-            font-size: 1.15rem
-        }
-
-        .xrow .xday {
-            font-weight: 700;
-            color: var(--text);
-            white-space: nowrap
-        }
-
-        .xrow .xr {
-            text-align: right;
-            white-space: nowrap
-        }
-
-        .xrow.best {
-            background: var(--green-bg);
-            border: 1px solid var(--green-border)
-        }
-
-        .xrow.best .xday,
-        .xrow.best .xr {
-            color: #1b6b30;
-            font-weight: 800
-        }
-
         /* ---------- Forecast icon column (overrides earlier grid) ---------- */
         .forecast .frow {
             grid-template-columns: auto 1fr auto
@@ -737,16 +692,12 @@
             <div class="rec-detail" id="recDetail"></div>
         </section>
 
-        <!-- 3-day forecast -->
+        <!-- 7-day forecast -->
         <div class="section-title-row">
-            <span class="section-title">Next 3 Days</span>
+            <span class="section-title">Next 7 Days</span>
             <span id="wxStatus" class="wx-status" role="status"></span>
         </div>
-        <section class="glass forecast" id="forecast" aria-label="Three day forecast"></section>
-
-        <!-- Extended outlook (day 4–14) -->
-        <div class="section-title">Outlook · Next Two Weeks</div>
-        <section class="glass extended hidden" id="extended" aria-label="Extended two-week outlook"></section>
+        <section class="glass forecast" id="forecast" aria-label="Seven day forecast"></section>
 
         <!-- Property cards -->
         <div class="section-title">Your Lawns</div>
@@ -801,10 +752,10 @@
         const GREEN_MAX = 8;   // < 8 days  -> green
         const YELLOW_MAX = 12; // 8–12 days -> yellow, > 12 -> red
 
-        // Scoring horizon: Open-Meteo's free tier gives ~16 daily values. We ask
-        // for 14 and score the WHOLE window so "a drier day may come" is an
-        // actual recommendation instead of a shrug when all 3 days are wet.
-        const FORECAST_DAYS = 14;
+        // Scoring horizon: Open-Meteo's free tier gives ~16 daily values. We ask for a full week and
+        // score the WHOLE window so "a drier day may come" is an actual recommendation
+        // instead of a shrug when the first days are wet.
+        const FORECAST_DAYS = 7; // full forecast window — also the best-mowing-day scoring horizon
 
         const LS_KEY = "lawnMower.lastCut.v1";
         const LS_WX = "lawnMower.weather.v2";
@@ -1239,41 +1190,6 @@
             });
         }
 
-        // Compact day-by-day list for everything BEYOND the 3-day strip.
-        // globalBestIdx is an index into the full `days` window; -1 = no highlight.
-        function renderExtended(days, globalBestIdx) {
-            const wrap = $("extended");
-            wrap.innerHTML = "";
-            if (!days || !days.length) {
-                wrap.classList.add("hidden");
-                return;
-            }
-            wrap.classList.remove("hidden");
-            days.slice(3).forEach((d, k) => {
-                const i = k + 3;
-                const row = document.createElement("div");
-                row.className = "xrow" + (i === globalBestIdx ? " best" : "");
-
-                const icon = document.createElement("span");
-                icon.className = "xicon";
-                icon.textContent = wxIcon(d.weather_code ?? 0, d.precipitation_probability_max);
-
-                const dl = document.createElement("span");
-                dl.className = "xday";
-                const dayName = new Date(d.date + "T12:00:00").toLocaleDateString([], {
-                    weekday: "short", month: "short", day: "numeric"
-                });
-                dl.textContent = (i === globalBestIdx ? "★ " : "") + dayName;
-
-                const r = document.createElement("span");
-                r.className = "xr";
-                r.textContent = `${Math.round(d.temperature_2m_max)}° · ${d.precipitation_probability_max ?? 0}%`;
-
-                row.append(icon, dl, r);
-                wrap.appendChild(row);
-            });
-        }
-
         function renderRecommendation() {
             const rec = $("rec");
             const main = $("recMain");
@@ -1288,7 +1204,7 @@
                 rec.classList.add("is-neutral");
                 main.textContent = "No cut needed 🌱";
                 detail.innerHTML = `All of your lawns were cut within the last ${GREEN_MAX} days. Enjoy the break — we'll flag a day when one starts to grow back.`;
-                if (hasForecast) { renderForecast(state.days.slice(0, 3), -1); renderExtended(state.days, -1); }
+                if (hasForecast) renderForecast(state.days, -1);
                 return;
             }
 
@@ -1296,12 +1212,12 @@
                 rec.classList.add("is-neutral");
                 main.textContent = "Forecast unavailable";
                 detail.textContent = "We couldn't load the weather, so we can't pick a day. Check your connection and pull to refresh.";
-                renderExtended(null, -1);
+                $("forecast").innerHTML = "";
                 return;
             }
 
-            // Score the WHOLE window (up to 14 days) — a drier day may come on
-            // day 6 or 9, and that's now an actual recommendation.
+            // Score the WHOLE window (7 days) — a drier day may come on day 4 or 6,
+            // and that's now an actual recommendation.
             let bestIdx = 0, bestScore = -Infinity;
             state.days.forEach((d, i) => {
                 const s = scoreDay(d).score;
@@ -1335,25 +1251,18 @@
 
             if (bestInfo.rain <= 30) {
                 rec.classList.add("is-good");
-                main.textContent = `${dayName}${bestIdx > 2 ? ` ★` : ""}`;
+                main.textContent = dayName;
                 detail.innerHTML =
-                    `${when}: low rain chance (<b>${bestInfo.rain}%</b>) and a comfortable <b>${Math.round(bestInfo.temp)}°F</b> — the best day of the next two weeks.${winText} ${overdueBit}`;
+                    `${when}: low rain chance (<b>${bestInfo.rain}%</b>) and a comfortable <b>${Math.round(bestInfo.temp)}°F</b> — the best day of the week.${winText} ${overdueBit}`;
             } else {
                 rec.classList.add("is-warn");
-                main.textContent = `${dayName}${bestIdx > 2 ? ` ★` : ""}`;
+                main.textContent = dayName;
                 detail.innerHTML =
-                    `It's the driest of the next ${Math.min(FORECAST_DAYS, state.days.length)} days (${when}), but rain chance is <b>${bestInfo.rain}%</b> and it's about <b>${Math.round(bestInfo.temp)}°F</b>. Nothing better shows up in the two-week outlook.${winText} ${overdueBit}`;
+                    `It's the driest of the next ${Math.min(FORECAST_DAYS, state.days.length)} days (${when}), but rain chance is <b>${bestInfo.rain}%</b> and it's about <b>${Math.round(bestInfo.temp)}°F</b>. Nothing better shows up this week.${winText} ${overdueBit}`;
             }
 
-            // 3-day strip keeps its own best-of-3 tag (unchanged behavior).
-            let stripBest = 0, stripScore = -Infinity;
-            state.days.slice(0, 3).forEach((d, i) => {
-                const s = scoreDay(d).score;
-                if (s > stripScore) { stripScore = s; stripBest = i; }
-            });
-            renderForecast(state.days.slice(0, 3), stripBest);
-            // Extended list highlights the GLOBAL best day.
-            renderExtended(state.days, bestIdx);
+            // The 7-day list highlights the GLOBAL best day (tag + hero agree).
+            renderForecast(state.days, bestIdx);
         }
 
         const state = { days: null, wxEnvelope: null };
@@ -1361,7 +1270,7 @@
         async function loadWeather() {
             showOverlay(true);
             try {
-                // Daily data for the full 14-day horizon + hourly dew point / wind
+                // Daily data for the full 7-day horizon + hourly dew point / wind
                 // (only day-1 matters — that's where time-of-day advice applies).
                 const url = `${WX_URL}?latitude=${LAT}&longitude=${LON}` +
                     `&daily=temperature_2m_max,temperature_2m_min,precipitation_probability_max,precipitation_sum,weather_code` +
@@ -1508,7 +1417,7 @@
          * ============================================================ */
         const LS_ALERTS = "lawnMower.alerts.v1";
         const LS_NOTED = "lawnMower.alerts.lastNote";
-        const APP_VERSION = 8; // bump with the sw.js cache name on every index.html change
+        const APP_VERSION = 9; // bump with the sw.js cache name on every index.html change
 
         function loadAlertPrefs() {
             try { return JSON.parse(localStorage.getItem(LS_ALERTS)) || {}; } catch { return {}; }
