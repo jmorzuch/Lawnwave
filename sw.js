@@ -12,7 +12,7 @@
  * fires on reconnect / app open. We send at most one notification per ~12h,
  * sharing that throttle with the page-side fallback via localStorage.
  */
-const CACHE = "lawn-mower-v6"; // bump on every index.html change: cache-first serves stale shells otherwise (v6: permission-bar fallback opens location.href, not origin — /Lawnwave subdirectory)
+const CACHE = "lawn-mower-v7"; // bump on every index.html change: cache-first serves stale shells otherwise (v7: never cache sw.js itself — it was pinning phones at the first version they got)
 const APP_SHELL = [
     "./",
     "./index.html",
@@ -45,6 +45,11 @@ self.addEventListener("fetch", (event) => {
 
     const url = new URL(req.url);
     if (url.origin !== self.location.origin) return; // let cross-origin (weather API) use default handling
+
+    // Never cache this worker's OWN script. Chrome re-requests sw.js on every app open to
+    // check for a newer version — if we answer from cache, the phone stays pinned at whatever
+    // version first got here (this is exactly what kept v6 out of Joe's S25). Let those go network-direct.
+    if (req.destination === "script" || url.pathname.endsWith("/sw.js")) return;
 
     event.respondWith(
         caches.match(req, { ignoreSearch: true }).then((cached) => {
