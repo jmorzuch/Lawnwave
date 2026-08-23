@@ -12,7 +12,7 @@
  * fires on reconnect / app open. We send at most one notification per ~12h,
  * sharing that throttle with the page-side fallback via localStorage.
  */
-const CACHE = "lawn-mower-v10"; // bump on every index.html change: cache-first serves stale shells otherwise (v10: Google Drive sync section — phone pushes cut log to a shared lawnwave.json the PC dashboard reads)
+const CACHE = "lawn-mower-v11"; // bump on every index.html change: cache-first serves stale shells otherwise (v11: wire in Google web-app client ID — sync is now live)
 const APP_SHELL = [
     "./",
     "./index.html",

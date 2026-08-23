@@ -793,7 +793,7 @@
         /* ---- Google Drive sync (phone = source of truth) ----
            Paste your Google OAuth "Web application" client ID below — the SAME
            one the PC dashboard uses. It ends in .apps.googleusercontent.com */
-        const GOOGLE_CLIENT_ID = "PASTE_YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com";
+        const GOOGLE_CLIENT_ID = "124899732019-iodjsp40msa1q185tmod19o0nsdc4klg.apps.googleusercontent.com";
         const LS_WX = "lawnMower.weather.v2";
 
         /* ---------- Weather icons (Open-Meteo WMO weather_code) ---------- */
@@ -1454,7 +1454,7 @@
          * ============================================================ */
         const LS_ALERTS = "lawnMower.alerts.v1";
         const LS_NOTED = "lawnMower.alerts.lastNote";
-        const APP_VERSION = 10; // bump with the sw.js cache name on every index.html change
+        const APP_VERSION = 11; // bump with the sw.js cache name on every index.html change
 
         function loadAlertPrefs() {
             try { return JSON.parse(localStorage.getItem(LS_ALERTS)) || {}; } catch { return {}; }
