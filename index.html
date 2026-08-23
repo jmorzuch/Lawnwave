@@ -14,6 +14,7 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icon.svg" />
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
         :root {
             --radius: 20px;
@@ -471,6 +472,21 @@
             color: #c92a2a
         }
 
+        /* ---------- Drive sync status ---------- */
+        .sync-status {
+            min-height: 1em;
+            font-size: .8rem;
+            font-weight: 600
+        }
+
+        .sync-status.ok {
+            color: #1b6b30
+        }
+
+        .sync-status.err {
+            color: #c92a2a
+        }
+
         /* ---------- Overlay / error ---------- */
         .overlay {
             position: fixed;
@@ -707,6 +723,21 @@
         <div class="section-title">Daily Alerts</div>
         <section class="glass alerts" id="alerts" aria-label="Daily mowing alerts"></section>
 
+        <!-- Sync: phone <-> PC via Google Drive -->
+        <div class="section-title">Sync</div>
+        <section class="glass data" id="sync" aria-label="Sync with Google Drive">
+            <p class="data-note">
+                Keep your phone and PC in step. <b>Push</b> sends your cut log to a shared Drive file;
+                <b>Pull</b> brings it back and merges. The PC dashboard reads that same file, so a cut
+                logged on your phone shows up there.
+            </p>
+            <div class="data-actions">
+                <button class="data-btn" id="syncPush" type="button">⬆ Push to Drive</button>
+                <button class="data-btn secondary" id="syncPull" type="button">⬇ Pull</button>
+            </div>
+            <div class="data-msg sync-status" id="syncStatus" role="status" aria-live="polite"></div>
+        </section>
+
         <!-- Data: export / import -->
         <div class="section-title">Backup</div>
         <section class="glass data" aria-label="Backup and restore">
@@ -758,6 +789,11 @@
         const FORECAST_DAYS = 7; // full forecast window — also the best-mowing-day scoring horizon
 
         const LS_KEY = "lawnMower.lastCut.v1";
+
+        /* ---- Google Drive sync (phone = source of truth) ----
+           Paste your Google OAuth "Web application" client ID below — the SAME
+           one the PC dashboard uses. It ends in .apps.googleusercontent.com */
+        const GOOGLE_CLIENT_ID = "PASTE_YOUR_GOOGLE_CLIENT_ID.apps.googleusercontent.com";
         const LS_WX = "lawnMower.weather.v2";
 
         /* ---------- Weather icons (Open-Meteo WMO weather_code) ---------- */
@@ -1100,6 +1136,7 @@
             renderCards();
             renderRecommendation(); // status may have changed (e.g. all green now)
             renderAlerts();         // the daily digest's "most overdue" line changes too
+            if (driveConfigured()) autoPush(); // best-effort: get it to the PC now
             if (btn) {
                 btn.classList.add("done");
                 btn.textContent = "Logged!";
@@ -1417,7 +1454,7 @@
          * ============================================================ */
         const LS_ALERTS = "lawnMower.alerts.v1";
         const LS_NOTED = "lawnMower.alerts.lastNote";
-        const APP_VERSION = 9; // bump with the sw.js cache name on every index.html change
+        const APP_VERSION = 10; // bump with the sw.js cache name on every index.html change
 
         function loadAlertPrefs() {
             try { return JSON.parse(localStorage.getItem(LS_ALERTS)) || {}; } catch { return {}; }
@@ -1621,11 +1658,228 @@
         }
 
         /* ============================================================
+         *  Google Drive sync — phone <-> PC
+         *  The phone is the single source of truth: it PUSHES its cut log to
+         *  a shared Drive file (lawnwave.json) and PULLS to merge. The PC
+         *  dashboard reads that same file, so a cut logged on the phone shows
+         *  up there. The file is a shared "folder root" — first push creates it.
+         *  Auth is the Google Identity Services device flow (no redirect).
+         * ============================================================ */
+        const SYNC_DRIVE_FILE = "lawnwave.json";
+        const LS_GID = "lawnwave.sync.googleClientId";
+        const LS_FILEID = "lawnwave.sync.fileId";
+        const LS_TOKEN = "lawnwave.sync.token";
+        const LS_TOKEN_EXP = "lawnwave.sync.tokenExp";
+        // Full Drive scope (NOT drive.file): files made with drive.file are locked
+        // to the creating app and invisible to other clients (incl. the PC reader).
+        // Full scope puts lawnwave.json in the shared namespace both sides can see.
+        const SYNC_SCOPES = "https://www.googleapis.com/auth/drive";
+
+        function syncMsg(text, kind) {
+            const el = $("syncStatus");
+            if (!el) return;
+            el.textContent = text;
+            el.className = "data-msg sync-status" + (kind ? " " + kind : "");
+        }
+
+        function driveConfigured() {
+            let cid = GOOGLE_CLIENT_ID;
+            if (!cid || cid.indexOf("PASTE_YOUR") === 0) {
+                try { cid = localStorage.getItem(LS_GID) || ""; } catch { cid = ""; }
+            }
+            return (cid && cid.indexOf(".apps.googleusercontent.com") > -1) ? cid : null;
+        }
+
+        let _tokClient = null;
+        function getTokenClient(cid) {
+            if (!_tokClient) {
+                _tokClient = google.accounts.oauth2.initTokenClient({
+                    client_id: cid,
+                    scope: SYNC_SCOPES,
+                });
+            }
+            return _tokClient;
+        }
+
+        function getAccessToken(force) {
+            return new Promise((resolve, reject) => {
+                let tk, exp;
+                try { tk = localStorage.getItem(LS_TOKEN); exp = +localStorage.getItem(LS_TOKEN_EXP) || 0; } catch { tk = null; exp = 0; }
+                if (tk && !force && exp > Date.now() + 30000) return resolve(tk);
+                const cid = driveConfigured();
+                if (!cid || typeof google === "undefined" || !google.accounts) {
+                    return reject(new Error("not-configured"));
+                }
+                let settled = false;
+                const guard = setTimeout(() => { if (!settled) { settled = true; reject(new Error("timeout")); } }, 20000);
+                try {
+                    getTokenClient(cid).requestAccessToken({
+                        error_callback: (err) => { if (!settled) { settled = true; clearTimeout(guard); reject(err); } },
+                        success_callback: (resp) => {
+                            if (settled) return;
+                            settled = true; clearTimeout(guard);
+                            try {
+                                localStorage.setItem(LS_TOKEN, resp.access_token);
+                                const expMs = Date.now() + ((resp.expires_in || 3600) * 1000) - 60000;
+                                localStorage.setItem(LS_TOKEN_EXP, String(expMs));
+                            } catch { /* storage full — token still usable this session */ }
+                            resolve(resp.access_token);
+                        },
+                    });
+                } catch (e) { if (!settled) { settled = true; clearTimeout(guard); reject(e); } }
+            });
+        }
+
+        async function driveReq(token, method, path, body) {
+            const opts = { method, headers: { Authorization: "Bearer " + token } };
+            if (body) { opts.headers["Content-Type"] = "application/json"; opts.body = JSON.stringify(body); }
+            let res;
+            try { res = await fetch("https://www.googleapis.com/drive/v3" + path, opts); }
+            catch { throw new Error("network"); }
+            if (!res.ok) {
+                let msg = "HTTP " + res.status;
+                try { const j = await res.json(); msg = (j.error && (j.error.message || j.error.errors[0] && j.error.errors[0].reason)) || msg; } catch { /* keep HTTP status */ }
+                throw new Error(msg);
+            }
+            return res.status === 204 ? null : res.json();
+        }
+
+        async function ensureFile(token) {
+            let id;
+            try { id = localStorage.getItem(LS_FILEID); } catch { id = null; }
+            if (id) {
+                try { const j = await driveReq(token, "GET", "/files/" + id + "?fields=id"); return j.id; }
+                catch { id = null; } // gone or unauthorized — recreate below
+            }
+            // No usable cached id — create the file in the root of My Drive.
+            const created = await driveReq(token, "POST", "/files?fields=id", {
+                name: SYNC_DRIVE_FILE,
+                mimeType: "application/json",
+            });
+            try { localStorage.setItem(LS_FILEID, created.id); } catch { /* ignore */ }
+            return created.id;
+        }
+
+        function buildPayload() {
+            const payload = {};
+            PROPERTIES.forEach((p) => { const h = historyFor(p.id); if (h.length) payload[p.id] = h; });
+            return payload;
+        }
+
+        function mergeCuts(local, remote) {
+            const out = {};
+            PROPERTIES.forEach((p) => {
+                const l = local[p.id], r = remote[p.id];
+                const arr = (a) => {
+                    const raw = a;
+                    const list = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+                    return list.map(toTimestamp).filter(Boolean);
+                };
+                const all = Array.from(new Set(arr(l).concat(arr(r)))).sort((a, b) => b - a);
+                if (all.length) out[p.id] = all.slice(0, 20);
+            });
+            return out;
+        }
+
+        async function syncPush() {
+            const token = await getAccessToken(true);
+            const id = await ensureFile(token);
+            const payload = buildPayload();
+            await driveReq(token, "PATCH", "/files/" + id, {
+                mimeType: "application/json",
+                content: JSON.stringify(payload, null, 2),
+            });
+            return payload;
+        }
+
+        async function syncPull() {
+            const token = await getAccessToken(false);
+            let id;
+            try { id = localStorage.getItem(LS_FILEID); } catch { id = null; }
+            if (!id) throw new Error("no-file");
+            const j = await driveReq(token, "GET", "/files/" + id + "?alt=media");
+            const incoming = (j && j.cuts) ? j.cuts : j;
+            if (!incoming || typeof incoming !== "object") throw new Error("bad-file");
+            return incoming;
+        }
+
+        async function doPush(btn) {
+            const el = btn || $("syncPush");
+            const orig = el && el.textContent;
+            if (el) { el.disabled = true; el.textContent = "Pushing…"; }
+            try {
+                const payload = await syncPush();
+                syncMsg("Pushed to Drive — " + Object.keys(payload).length + " propert" + (Object.keys(payload).length === 1 ? "y" : "ies") + ".", "ok");
+            } catch (e) {
+                if (e && e.message === "not-configured") {
+                    syncMsg("Add your Google client ID to GOOGLE_CLIENT_ID (top of the file), then tap Push.", "err");
+                } else {
+                    syncMsg("Push failed: " + ((e && e.message) || e), "err");
+                }
+            } finally {
+                if (el) { el.disabled = false; el.textContent = orig; }
+            }
+        }
+
+        async function doPull() {
+            const el = $("syncPull");
+            const orig = el && el.textContent;
+            if (el) { el.disabled = true; el.textContent = "Pulling…"; }
+            try {
+                const incoming = await syncPull();
+                const merged = mergeCuts(cuts, incoming);
+                cuts = merged;
+                saveCuts(cuts);
+                renderCards();
+                renderRecommendation();
+                renderAlerts();
+                syncMsg("Pulled from Drive — merged with local log.", "ok");
+            } catch (e) {
+                if (e && e.message === "no-file") {
+                    syncMsg("No Drive file yet — tap Push first to create it.", "err");
+                } else if (e && e.message === "not-configured") {
+                    syncMsg("Add your Google client ID to GOOGLE_CLIENT_ID, then tap Pull.", "err");
+                } else {
+                    syncMsg("Pull failed: " + ((e && e.message) || e), "err");
+                }
+            } finally {
+                if (el) { el.disabled = false; el.textContent = orig; }
+            }
+        }
+
+        // Silent best-effort: after a cut is logged, push so the PC sees it.
+        // Swallows errors — the app must never block a cut on a sync hiccup.
+        async function autoPush() {
+            try {
+                const cid = driveConfigured();
+                if (!cid) return;
+                let tk, exp;
+                try { tk = localStorage.getItem(LS_TOKEN); exp = +localStorage.getItem(LS_TOKEN_EXP) || 0; } catch { tk = null; exp = 0; }
+                if (tk && exp > Date.now() + 30000) {
+                    const id = await ensureFile(tk);
+                    await driveReq(tk, "PATCH", "/files/" + id, {
+                        mimeType: "application/json",
+                        content: JSON.stringify(buildPayload(), null, 2),
+                    });
+                    syncMsg("Auto-synced to Drive ✓", "ok");
+                }
+                // If no cached token, stay quiet — the user can tap Push to log in.
+            } catch { /* silent */ }
+        }
+
+        function wireSyncButtons() {
+            const push = $("syncPush"), pull = $("syncPull");
+            if (push) push.addEventListener("click", () => doPush());
+            if (pull) pull.addEventListener("click", () => doPull());
+        }
+
+        /* ============================================================
          *  Init
          * ============================================================ */
         renderCards();
         loadWeather().then(() => { maybeDailyNudge(); });
         wireDataButtons();
+        wireSyncButtons();
         renderAlerts();
         try { if (new URLSearchParams(location.search).get("src") === "grant") showGrantBanner(); } catch {}
 

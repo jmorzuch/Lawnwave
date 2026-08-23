@@ -12,7 +12,7 @@
  * fires on reconnect / app open. We send at most one notification per ~12h,
  * sharing that throttle with the page-side fallback via localStorage.
  */
-const CACHE = "lawn-mower-v9"; // bump on every index.html change: cache-first serves stale shells otherwise (v7: never cache sw.js itself — it was pinning phones at the first version they got; v8: dead-tap fallback opens ?src=grant tab variant + clipboard backup, persistent grant banner; v9: 3-day strip + two-week outlook merged into one Next-7-Days list, best day scored over the week)
+const CACHE = "lawn-mower-v10"; // bump on every index.html change: cache-first serves stale shells otherwise (v10: Google Drive sync section — phone pushes cut log to a shared lawnwave.json the PC dashboard reads)
 const APP_SHELL = [
     "./",
     "./index.html",
