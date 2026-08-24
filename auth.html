@@ -26,20 +26,12 @@
 </div>
 <script>
 (function () {
-    // Web App OAuth client — it accepts this HTTPS Pages redirect URI (the
-    // Desktop client only allows localhost, so it can't be used here). The
-    // project requires a client secret for token exchange, so we send the
-    // Web App client's own secret below.
+    // Web App OAuth client — it has this Pages redirect URI authorized (the
+    // Desktop client only allows localhost, so it can't be used here). Web
+    // App clients are public: NO client secret is sent, pure PKCE.
     const CLIENT_ID = "124899732019-iodjsp40msa1q185tmod19o0nsdc4klg.apps.googleusercontent.com";
-    const CLIENT_SECRET = "PASTE_WEB_APP_SECRET_HERE";
     const REDIRECT_URI = "https://jmorzuch.github.io/Lawnwave/auth.html";
     const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
-
-    if (CLIENT_SECRET.indexOf("PASTE_") === 0) {
-        setMsg("err", "Web App client secret is not configured.", "The token exchange needs the Web App client's own secret (see auth.html).");
-        setTimeout(() => location.replace(home([["syncerr", "no-secret-configured"]])), 4000);
-        return;
-    }
 
     const LS_TOKEN = "lawnwave.sync.token";
     const LS_TOKEN_EXP = "lawnwave.sync.tokenExp";
@@ -94,7 +86,6 @@
 
     const form = new URLSearchParams({
         client_id: CLIENT_ID,
-        client_secret: CLIENT_SECRET,
         code: code,
         redirect_uri: REDIRECT_URI,
         grant_type: "authorization_code",
