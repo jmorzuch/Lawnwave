@@ -12,10 +12,11 @@
  * fires on reconnect / app open. We send at most one notification per ~12h,
  * sharing that throttle with the page-side fallback via localStorage.
  */
-const CACHE = "lawn-mower-v12"; // bump on every index.html change: cache-first serves stale shells otherwise (v12: 2min GSI consent timeout + clearer timeout error + client-id guard)
+const CACHE = "lawn-mower-v13"; // bump on every index.html change (v13: full-page OAuth redirect + PKCE replaces broken GSI popup; new auth.html callback)
 const APP_SHELL = [
     "./",
     "./index.html",
+    "./auth.html",
     "./manifest.webmanifest",
     "./icon.svg",
 ];

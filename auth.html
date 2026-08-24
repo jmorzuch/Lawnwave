@@ -1,0 +1,125 @@
+<!doctype html>
+<!-- Lawnwave OAuth callback (full-page PKCE redirect flow).
+     Google sends the user here with ?code=...&state=.... We verify state,
+     exchange the code for an access token using the PKCE verifier stored in
+     localStorage, save the token, and bounce back to index.html. -->
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Lawnwave — finishing sign-in</title>
+<style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: #f7faf7; color: #1c2b22; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+    .card { background: #fff; border: 1px solid #e3ede5; border-radius: 16px; padding: 28px 24px; max-width: 420px; margin: 16px; box-shadow: 0 6px 24px rgba(20, 60, 35, .08); text-align: center; }
+    .spinner { width: 34px; height: 34px; margin: 0 auto 14px; border: 3px solid #dcebe0; border-top-color: #2f7d4f; border-radius: 50%; animation: spin .9s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .ok { color: #2f7d4f; font-weight: 600; }
+    .err { color: #b3382c; font-weight: 600; }
+    small { color: #5d6f64; display: block; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="card">
+    <div class="spinner" id="spin"></div>
+    <div id="msg">Finishing Google sign-in…</div>
+    <small id="detail"></small>
+</div>
+<script>
+(function () {
+    // Web App OAuth client — it accepts this HTTPS Pages redirect URI (the
+    // Desktop client only allows localhost, so it can't be used here). The
+    // project requires a client secret for token exchange, so we send the
+    // Web App client's own secret below.
+    const CLIENT_ID = "124899732019-iodjsp40msa1q185tmod19o0nsdc4klg.apps.googleusercontent.com";
+    const CLIENT_SECRET = "PASTE_WEB_APP_SECRET_HERE";
+    const REDIRECT_URI = "https://jmorzuch.github.io/Lawnwave/auth.html";
+    const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
+
+    if (CLIENT_SECRET.indexOf("PASTE_") === 0) {
+        setMsg("err", "Web App client secret is not configured.", "The token exchange needs the Web App client's own secret (see auth.html).");
+        setTimeout(() => location.replace(home([["syncerr", "no-secret-configured"]])), 4000);
+        return;
+    }
+
+    const LS_TOKEN = "lawnwave.sync.token";
+    const LS_TOKEN_EXP = "lawnwave.sync.tokenExp";
+    const LS_PKCE_VERIFIER = "lawnwave.sync.pkceVerifier";
+    const LS_PKCE_STATE = "lawnwave.sync.pkceState";
+
+    function setMsg(kind, text, detail) {
+        document.getElementById("spin").style.display = "none";
+        const m = document.getElementById("msg");
+        m.textContent = text;
+        m.className = kind;
+        if (detail) document.getElementById("detail").textContent = detail;
+    }
+    function home(extra) {
+        const u = new URL(location.href);
+        u.search = ""; u.hash = "";
+        if (extra) extra.forEach(([k, v]) => u.searchParams.set(k, v));
+        return u.pathname + u.search; // index.html + ?msg=...
+    }
+    function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+    function lsSet(k, v) { try { localStorage.setItem(k, v); } catch { /* ignore */ } }
+    function lsDel(k) { try { localStorage.removeItem(k); } catch { /* ignore */ } }
+
+    const params = new URLSearchParams(location.search);
+    const err = params.get("error");
+    if (err) {
+        const desc = params.get("error_description") || "";
+        setMsg("err", "Google sign-in was not completed.", desc || err);
+        setTimeout(() => { location.replace(home([["syncerr", encodeURIComponent(err + (desc ? ": " + desc : ""))]])); }, 3500);
+        return;
+    }
+    const code = params.get("code");
+    const state = params.get("state");
+    if (!code) {
+        setMsg("err", "No authorization code received.", "Google redirected back without a code.");
+        setTimeout(() => location.replace(home([["syncerr", "no-code"]])), 3500);
+        return;
+    }
+
+    const expectedState = lsGet(LS_PKCE_STATE);
+    if (expectedState && state !== expectedState) {
+        setMsg("err", "State mismatch — sign-in aborted for safety.", "Tap Push to try again.");
+        setTimeout(() => location.replace(home([["syncerr", "state-mismatch"]])), 3500);
+        return;
+    }
+    const verifier = lsGet(LS_PKCE_VERIFIER);
+    if (!verifier) {
+        setMsg("err", "Missing PKCE verifier.", "Tap Push to try again.");
+        setTimeout(() => location.replace(home([["syncerr", "no-verifier"]])), 3500);
+        return;
+    }
+
+    const form = new URLSearchParams({
+        client_id: CLIENT_ID,
+        client_secret: CLIENT_SECRET,
+        code: code,
+        redirect_uri: REDIRECT_URI,
+        grant_type: "authorization_code",
+        code_verifier: verifier,
+    });
+    fetch(TOKEN_ENDPOINT, { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: form.toString() })
+        .then((r) => r.json().then((j) => ({ ok: r.ok, j: j })))
+        .then(({ ok, j }) => {
+            lsDel(LS_PKCE_VERIFIER); lsDel(LS_PKCE_STATE);
+            if (!ok || !j.access_token) {
+                const d = (j && (j.error_description || j.error)) || "token exchange failed";
+                setMsg("err", "Token exchange failed.", d);
+                setTimeout(() => location.replace(home([["syncerr", encodeURIComponent("token-exchange: " + d)]])), 4500);
+                return;
+            }
+            lsSet(LS_TOKEN, j.access_token);
+            lsSet(LS_TOKEN_EXP, String(Date.now() + ((j.expires_in || 3600) * 1000) - 60000));
+            setMsg("ok", "Signed in — heading back to Lawnwave…");
+            setTimeout(() => location.replace(home([["syncok", "1"]])), 900);
+        })
+        .catch((e) => {
+            setMsg("err", "Token exchange failed.", String(e));
+            setTimeout(() => location.replace(home([["syncerr", "network"]])), 4500);
+        });
+})();
+</script>
+</body>
+</html>
