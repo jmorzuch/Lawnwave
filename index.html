@@ -1454,7 +1454,7 @@
          * ============================================================ */
         const LS_ALERTS = "lawnMower.alerts.v1";
         const LS_NOTED = "lawnMower.alerts.lastNote";
-        const APP_VERSION = 11; // bump with the sw.js cache name on every index.html change
+        const APP_VERSION = 12; // bump with the sw.js cache name on every index.html change
 
         function loadAlertPrefs() {
             try { return JSON.parse(localStorage.getItem(LS_ALERTS)) || {}; } catch { return {}; }
@@ -1691,12 +1691,15 @@
         }
 
         let _tokClient = null;
+        let _tokClientCid = null;
         function getTokenClient(cid) {
+            if (_tokClient && _tokClientCid !== cid) { _tokClient = null; _tokClientCid = null; }
             if (!_tokClient) {
                 _tokClient = google.accounts.oauth2.initTokenClient({
                     client_id: cid,
                     scope: SYNC_SCOPES,
                 });
+                _tokClientCid = cid;
             }
             return _tokClient;
         }
@@ -1711,7 +1714,7 @@
                     return reject(new Error("not-configured"));
                 }
                 let settled = false;
-                const guard = setTimeout(() => { if (!settled) { settled = true; reject(new Error("timeout")); } }, 20000);
+                const guard = setTimeout(() => { if (!settled) { settled = true; reject(new Error("consent-screen timeout")); } }, 120000);
                 try {
                     getTokenClient(cid).requestAccessToken({
                         error_callback: (err) => { if (!settled) { settled = true; clearTimeout(guard); reject(err); } },
@@ -1813,6 +1816,8 @@
             } catch (e) {
                 if (e && e.message === "not-configured") {
                     syncMsg("Add your Google client ID to GOOGLE_CLIENT_ID (top of the file), then tap Push.", "err");
+                } else if (e && e.message === "consent-screen timeout") {
+                    syncMsg("Google sign-in didn't finish in time. Tap Push again, then in the popup: pick your Google account, click Advanced → Continue (it's an unverified personal app), then Allow. (Allow up to 2 min — mobile popups can be slow.)", "err");
                 } else {
                     syncMsg("Push failed: " + ((e && e.message) || e), "err");
                 }
